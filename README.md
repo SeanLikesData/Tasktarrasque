@@ -20,6 +20,12 @@ It is styled after Notebloat: a compact glassy menu bar popover with local JSON 
 - Each week has a `Big Three` section for three important weekly tasks.
 - Local JSON storage only.
 
+## Appearance and behavior
+
+Tasktarrasque is a dark glass HUD popover. It always uses a dark appearance because the frosted background and control colors are tuned for a dark surface.
+
+By default the popover closes when you click another application. Turn on **Keep popover pinned above other windows** in Settings to make it stay open and float above other windows. Either way, clicking the menu bar icon toggles the popover open and closed.
+
 ## Build and run
 
 From this repository root:
@@ -32,6 +38,20 @@ open build/Tasktarrasque.app
 The build script compiles the Swift sources directly with `swiftc` and assembles a proper `.app` bundle. The bundle sets `LSUIElement=true`, so the application runs as a menu bar accessory.
 
 To quit the application, press **Command-Q**.
+
+## Tests
+
+The model logic has a standalone test suite, also compiled directly with `swiftc`:
+
+```sh
+./run-tests.sh
+```
+
+It exits non-zero if any test fails.
+
+## Distribution note
+
+`build.sh` ad-hoc signs the bundle and the application is not sandboxed. That is fine for personal local use. Distributing it to other machines would require a real signing identity and, ideally, the App Sandbox.
 
 ## Data storage
 
