@@ -169,11 +169,12 @@ struct ContentView: View {
         HStack(spacing: 6) {
             ForEach(Weekday.allCases) { day in
                 let plan = store.selectedWeek?.days.first { $0.weekday == day }
+                let score = plan?.scoreText ?? "0/0"
                 Button { store.selectedDay = day } label: {
                     HStack(spacing: 5) {
                         Text(day.shortName)
                         Spacer(minLength: 2)
-                        Label("\(plan?.completedCount ?? 0)", systemImage: "checkmark.circle.fill")
+                        Label(score, systemImage: "checkmark.circle.fill")
                             .labelStyle(.titleAndIcon)
                             .font(.system(size: 10, weight: .semibold))
                             .opacity(0.82)
@@ -187,7 +188,7 @@ struct ContentView: View {
                     .overlay(RoundedRectangle(cornerRadius: 9).stroke(store.selectedDay == day ? TasktarrasqueStyle.activeControlStroke : TasktarrasqueStyle.controlStroke))
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("\(day.rawValue), \(plan?.completedCount ?? 0) done")
+                .accessibilityLabel("\(day.rawValue), \(score) complete")
                 .accessibilityAddTraits(store.selectedDay == day ? [.isSelected, .isButton] : .isButton)
             }
         }.padding(10)
@@ -571,7 +572,21 @@ struct ContentView: View {
         }
     }
 
-    private func errorBanner(_ text: String) -> some View { VStack { Text(text).font(.system(size: 11)).padding(8).background(Color.red.opacity(0.2)).clipShape(RoundedRectangle(cornerRadius: 8)).padding(10); Spacer() } }
+    private func errorBanner(_ text: String) -> some View {
+        VStack {
+            Text(text)
+                .font(.system(size: 11))
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.red.opacity(0.2))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .padding(10)
+            Spacer()
+        }
+        .zIndex(4)
+    }
 }
 
 enum FocusedTask: Hashable {

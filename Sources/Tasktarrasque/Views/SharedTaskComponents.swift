@@ -41,12 +41,21 @@ struct SharedTaskCard<FocusValue: Hashable, MenuContent: View>: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Button { onToggle?() } label: {
-                Image(systemName: isChecked ? checkIcon : uncheckedIcon)
+            Group {
+                if let onToggle {
+                    Button(action: onToggle) {
+                        Image(systemName: isChecked ? checkIcon : uncheckedIcon)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(isChecked ? "Mark not done" : "Mark done")
+                } else {
+                    Image(systemName: uncheckedIcon)
+                        .foregroundStyle(.secondary)
+                        .opacity(0.45)
+                        .accessibilityHidden(true)
+                }
             }
-            .buttonStyle(.plain)
-            .disabled(onToggle == nil)
-            .accessibilityLabel(isChecked ? "Mark not done" : "Mark done")
+            .frame(width: 16, height: 16)
 
             Group {
                 if renameFocus.wrappedValue == focusID {

@@ -22,7 +22,7 @@ struct TemplateSheet: View {
 
             HStack(spacing: 0) {
                 leftColumn
-                    .frame(width: 300)
+                    .frame(width: 260)
                     .padding(.trailing, 12)
                 TasktarrasqueStyle.verticalDivider
                 rightColumn
@@ -32,6 +32,7 @@ struct TemplateSheet: View {
             .frame(maxHeight: .infinity)
         }
         .padding(18)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(TasktarrasqueStyle.panelMaterial)
         .onAppear { draft = store.template }
         .onMoveCommand { direction in
@@ -137,14 +138,15 @@ struct TemplateSheet: View {
                 Button { selectedDay = day } label: {
                     HStack(spacing: 5) {
                         Text(day.shortName)
-                        Spacer(minLength: 2)
+                        Spacer(minLength: 1)
                         Text("\(taskCount)")
                             .font(.system(size: 10, weight: .semibold))
                             .opacity(0.82)
                     }
                     .lineLimit(1)
+                    .minimumScaleFactor(0.75)
                     .frame(maxWidth: .infinity)
-                    .padding(.horizontal, 9)
+                    .padding(.horizontal, 6)
                     .padding(.vertical, 7)
                     .background(RoundedRectangle(cornerRadius: 9).fill(selectedDay == day ? TasktarrasqueStyle.activeControlBackground : TasktarrasqueStyle.controlBackground.opacity(0.55)))
                     .overlay(RoundedRectangle(cornerRadius: 9).stroke(selectedDay == day ? TasktarrasqueStyle.activeControlStroke : TasktarrasqueStyle.controlStroke))

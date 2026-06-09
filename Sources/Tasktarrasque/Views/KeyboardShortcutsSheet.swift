@@ -52,6 +52,7 @@ struct KeyboardShortcutsSheet: View {
             Spacer()
         }
         .padding(18)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(TasktarrasqueStyle.panelMaterial)
         .focusable()
         .onAppear {

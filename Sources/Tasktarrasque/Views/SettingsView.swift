@@ -25,6 +25,7 @@ struct SettingsSheet: View {
             Spacer()
         }
         .padding(18)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(TasktarrasqueStyle.panelMaterial)
         .onExitCommand(perform: onClose)
     }
