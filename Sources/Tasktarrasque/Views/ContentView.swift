@@ -4,7 +4,6 @@ import UniformTypeIdentifiers
 
 struct ContentView: View {
     @EnvironmentObject private var store: TaskStore
-    @AppStorage(SettingsKey.theme) private var themeRaw = AppTheme.system.rawValue
     @AppStorage(SettingsKey.popoverSize) private var popoverRaw = PopoverSize.default.rawValue
     @State private var showingSettings = false
     @State private var showingTemplate = false
@@ -15,7 +14,6 @@ struct ContentView: View {
     @FocusState private var focusedRenameField: FocusedTask?
 
     private var popoverSize: CGSize { (PopoverSize(rawValue: popoverRaw) ?? .default).dimensions }
-    private var colorScheme: ColorScheme? { (AppTheme(rawValue: themeRaw) ?? .system).colorScheme }
 
     var body: some View {
         ZStack {
@@ -95,7 +93,7 @@ struct ContentView: View {
             if showingShortcuts { KeyboardShortcutsSheet(onClose: { showingShortcuts = false }).zIndex(2) }
             if let persistenceError = store.persistenceError { errorBanner(persistenceError) }
         }
-        .preferredColorScheme(colorScheme)
+        .preferredColorScheme(.dark)
         .frame(width: popoverSize.width, height: popoverSize.height)
         .clipShape(RoundedRectangle(cornerRadius: TasktarrasqueStyle.panelCornerRadius, style: .continuous))
         .overlay(TasktarrasqueStyle.panelBorder)
@@ -154,7 +152,7 @@ struct ContentView: View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    sectionHeader(title: "This Week", shortcut: "W") { createTask(in: .thisWeek) }
+                    SharedSectionHeader(title: "This Week", shortcut: "W") { createTask(in: .thisWeek) }
                     bigThree
                     VStack(spacing: 8) {
                         ForEach(store.selectedWeek?.thisWeekTasks ?? []) { task in
@@ -204,7 +202,7 @@ struct ContentView: View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(spacing: 10) {
-                    sectionHeader(title: "Tasks", shortcut: "N") { createTask(in: .day(store.selectedDay)) }
+                    SharedSectionHeader(title: "Tasks", shortcut: "N") { createTask(in: .day(store.selectedDay)) }
                     if let habits = store.selectedDayPlan?.habits, !habits.isEmpty {
                         habitsView(habits)
                     }
@@ -306,27 +304,6 @@ struct ContentView: View {
                 .focused($focusedTask, equals: .bigThree(index))
                 .onTapGesture { focusedTask = .bigThree(index) }
             }
-        }
-    }
-
-    private func sectionHeader(title: String, shortcut: String, action: @escaping () -> Void) -> some View {
-        HStack(spacing: 8) {
-            Text(title).font(.system(size: 15, weight: .bold))
-            Spacer()
-            Button(action: action) {
-                HStack(spacing: 5) {
-                    Image(systemName: "plus.circle.fill")
-                    Text(shortcut)
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 5)
-                .background(RoundedRectangle(cornerRadius: 8).fill(TasktarrasqueStyle.controlBackground))
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(TasktarrasqueStyle.controlStroke))
-            }
-            .buttonStyle(.plain)
-            .help("Create new \(title.lowercased()) item")
         }
     }
 
@@ -535,25 +512,3 @@ private struct DayTaskDropDelegate: DropDelegate {
     }
 }
 
-extension Collection { subscript(safe index: Index) -> Element? { indices.contains(index) ? self[index] : nil } }
-
-struct GlassPillModifier: ViewModifier {
-    @State private var hovering = false
-    let cornerRadius: CGFloat
-    func body(content: Content) -> some View { content.padding(.horizontal, 10).padding(.vertical, 5).background(RoundedRectangle(cornerRadius: cornerRadius).fill(hovering ? TasktarrasqueStyle.controlHoverBackground : TasktarrasqueStyle.controlBackground)).overlay(RoundedRectangle(cornerRadius: cornerRadius).stroke(hovering ? TasktarrasqueStyle.activeControlStroke : TasktarrasqueStyle.controlStroke)).onHover { hovering = $0 } }
-}
-extension View { func glassPill(cornerRadius: CGFloat) -> some View { modifier(GlassPillModifier(cornerRadius: cornerRadius)) } }
-
-enum TasktarrasqueStyle {
-    static let panelCornerRadius: CGFloat = 18
-    static var panelMaterial: some View { ZStack { VisualEffectView(material: .hudWindow, blendingMode: .behindWindow, state: .active); LinearGradient(colors: [Color.white.opacity(0.10), Color.black.opacity(0.18), Color.black.opacity(0.32)], startPoint: .topLeading, endPoint: .bottomTrailing); RadialGradient(colors: [Color.white.opacity(0.10), Color.clear], center: .topLeading, startRadius: 0, endRadius: 260) } }
-    static var panelBorder: some View { RoundedRectangle(cornerRadius: panelCornerRadius, style: .continuous).strokeBorder(LinearGradient(colors: [Color.white.opacity(0.32), Color.white.opacity(0.12), Color.black.opacity(0.22)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1) }
-    static var divider: some View { Rectangle().fill(Color.white.opacity(0.10)).frame(height: 1).overlay(Rectangle().fill(Color.black.opacity(0.12)).offset(y: 1)) }
-    static var verticalDivider: some View { Rectangle().fill(Color.white.opacity(0.10)).frame(width: 1).overlay(Rectangle().fill(Color.black.opacity(0.12)).offset(x: 1)) }
-    static let controlBackground = Color.white.opacity(0.10)
-    static let controlHoverBackground = Color.white.opacity(0.16)
-    static let activeControlBackground = Color.white.opacity(0.22)
-    static let editorBackground = Color.black.opacity(0.14)
-    static let controlStroke = Color.white.opacity(0.14)
-    static let activeControlStroke = Color.white.opacity(0.28)
-}

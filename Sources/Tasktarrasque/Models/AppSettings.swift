@@ -2,35 +2,8 @@ import SwiftUI
 
 /// Keys used with @AppStorage so the strings live in one place.
 enum SettingsKey {
-    static let theme = "theme"
     static let popoverSize = "popoverSize"
     static let pinned = "pinned"
-}
-
-/// Color scheme choice (Settings).
-enum AppTheme: String, CaseIterable, Identifiable {
-    case system
-    case light
-    case dark
-
-    var id: String { rawValue }
-
-    var label: String {
-        switch self {
-        case .system: "System"
-        case .light: "Light"
-        case .dark: "Dark"
-        }
-    }
-
-    /// nil means "follow the system setting".
-    var colorScheme: ColorScheme? {
-        switch self {
-        case .system: nil
-        case .light: .light
-        case .dark: .dark
-        }
-    }
 }
 
 /// Popover dimensions.
