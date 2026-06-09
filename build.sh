@@ -16,6 +16,37 @@ APP_NAME="Tasktarrasque"
 BUNDLE_ID="com.tasktarrasque.app"
 VERSION="1.0"
 BUILD_VERSION="1"
+INSTALL_AND_LAUNCH=false
+
+usage() {
+    cat <<USAGE
+Usage: ./build.sh [--install]
+
+Build Tasktarrasque into build/Tasktarrasque.app.
+
+Options:
+  --install    Copy the app to /Applications and launch that copy.
+  -h, --help   Show this help.
+USAGE
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --install|--install-and-launch|--launch)
+            INSTALL_AND_LAUNCH=true
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1" >&2
+            usage >&2
+            exit 1
+            ;;
+    esac
+    shift
+done
 
 SDK_PATH="$(xcrun --show-sdk-path)"
 ARCH="$(uname -m)"
@@ -33,17 +64,24 @@ rm -rf "$APP_DIR"
 mkdir -p "$MACOS_DIR"
 mkdir -p "$APP_DIR/Contents/Resources"
 
-SOURCES=$(find Sources/Tasktarrasque -name '*.swift')
+SOURCES=()
+while IFS= read -r source; do
+    SOURCES+=("$source")
+done < <(find Sources/Tasktarrasque -name '*.swift' -print | sort)
+
+if [[ "${#SOURCES[@]}" -eq 0 ]]; then
+    echo "No Swift sources found." >&2
+    exit 1
+fi
 
 echo "==> Compiling with swiftc"
-# shellcheck disable=SC2086
 swiftc \
     -parse-as-library \
     -target "$TARGET" \
     -sdk "$SDK_PATH" \
     -framework SwiftUI \
     -framework AppKit \
-    $SOURCES \
+    "${SOURCES[@]}" \
     -o "$MACOS_DIR/$APP_NAME"
 
 echo "==> Copying resources"
@@ -82,7 +120,22 @@ cat > "$APP_DIR/Contents/Info.plist" <<PLIST
 PLIST
 
 echo "==> Ad-hoc code signing"
-codesign --force --deep --sign - "$APP_DIR" >/dev/null 2>&1 || true
+if ! codesign --force --deep --sign - "$APP_DIR" >/dev/null 2>&1; then
+    echo "warning: ad-hoc signing failed; leaving unsigned local build" >&2
+fi
 
 echo "==> Done: $APP_DIR"
-echo "    Run it with: open \"$APP_DIR\""
+if [[ "$INSTALL_AND_LAUNCH" == true ]]; then
+    echo "==> Installing to /Applications"
+    pkill -x "$APP_NAME" 2>/dev/null || true
+    rm -rf "/Applications/$APP_NAME.app"
+    cp -R "$APP_DIR" /Applications/
+    echo "==> Launching /Applications/$APP_NAME.app"
+    open "/Applications/$APP_NAME.app" || {
+        sleep 1
+        open "/Applications/$APP_NAME.app"
+    }
+else
+    echo "    Run it with: open \"$APP_DIR\""
+    echo "    Install and launch it with: ./build.sh --install"
+fi

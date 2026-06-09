@@ -37,6 +37,14 @@ open build/Tasktarrasque.app
 
 The build script compiles the Swift sources directly with `swiftc` and assembles a proper `.app` bundle. The bundle sets `LSUIElement=true`, so the application runs as a menu bar accessory.
 
+For local testing from the same location as the normal installed app, build, install, and launch the `/Applications` copy:
+
+```sh
+./build.sh --install
+```
+
+This replaces `/Applications/Tasktarrasque.app`, quits any running Tasktarrasque instance, and launches the installed copy.
+
 To quit the application, press **Command-Q**.
 
 ## Tests
