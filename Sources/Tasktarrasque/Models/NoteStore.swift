@@ -36,6 +36,37 @@ final class TaskStore: ObservableObject {
         var selectedWeekID: UUID?
         var selectedDay: Weekday
         var template: WeeklyTemplate
+
+        init(
+            version: Int = 1,
+            weeks: [WeekPlan],
+            selectedWeekID: UUID?,
+            selectedDay: Weekday,
+            template: WeeklyTemplate
+        ) {
+            self.version = version
+            self.weeks = weeks
+            self.selectedWeekID = selectedWeekID
+            self.selectedDay = selectedDay
+            self.template = template
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case version
+            case weeks
+            case selectedWeekID
+            case selectedDay
+            case template
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            version = try container.decodeIfPresent(Int.self, forKey: .version) ?? 1
+            weeks = try container.decodeIfPresent([WeekPlan].self, forKey: .weeks) ?? []
+            selectedWeekID = try container.decodeIfPresent(UUID.self, forKey: .selectedWeekID)
+            selectedDay = try container.decodeIfPresent(Weekday.self, forKey: .selectedDay) ?? .monday
+            template = try container.decodeIfPresent(WeeklyTemplate.self, forKey: .template) ?? WeeklyTemplate()
+        }
     }
 
     convenience init() {
@@ -55,13 +86,15 @@ final class TaskStore: ObservableObject {
     init(directoryURL: URL, startupError: String? = nil) {
         self.directoryURL = directoryURL
         self.fileURL = directoryURL.appendingPathComponent("weeks.json")
-        try? FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         if let startupError { persistenceError = startupError }
+        ensureStorageDirectory()
         load()
+        let initialError = persistenceError
         if weeks.isEmpty { createNewWeek() }
         if selectedWeekID == nil || !weeks.contains(where: { $0.id == selectedWeekID }) {
             selectedWeekID = weeks.last?.id
         }
+        if let initialError { persistenceError = initialError }
     }
 
     var selectedWeek: WeekPlan? {
@@ -279,7 +312,14 @@ final class TaskStore: ObservableObject {
     }
 
     func flushPendingSave() { saveNow() }
-    func revealNotesInFinder() { NSWorkspace.shared.activateFileViewerSelecting([fileURL]) }
+    func revealNotesInFinder() {
+        if FileManager.default.fileExists(atPath: fileURL.path) {
+            NSWorkspace.shared.activateFileViewerSelecting([fileURL])
+        } else {
+            ensureStorageDirectory()
+            NSWorkspace.shared.open(directoryURL)
+        }
+    }
 
     private func ensureWeek(starting startDate: Date) -> Int {
         let start = mondayStart(for: startDate)
@@ -322,7 +362,8 @@ final class TaskStore: ObservableObject {
             template = decoded.template
         } catch {
             logger.error("Failed to load weeks: \(error.localizedDescription, privacy: .public)")
-            persistenceError = "The weeks file could not be read. \(error.localizedDescription)"
+            let backupMessage = backUpUnreadableStore()
+            persistenceError = "The weeks file could not be read. \(error.localizedDescription)\(backupMessage)"
         }
     }
 
@@ -341,6 +382,7 @@ final class TaskStore: ObservableObject {
         saveTask = nil
         saveState = .saving
         do {
+            try ensureStorageDirectoryForSave()
             let snapshot = Persisted(weeks: weeks, selectedWeekID: selectedWeekID, selectedDay: selectedDay, template: template)
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -351,6 +393,36 @@ final class TaskStore: ObservableObject {
             let message = "Tasks could not be saved. \(error.localizedDescription)"
             persistenceError = message
             saveState = .failed(message)
+        }
+    }
+
+    private func ensureStorageDirectory() {
+        do {
+            try ensureStorageDirectoryForSave()
+        } catch {
+            let message = "Storage directory could not be created. \(error.localizedDescription)"
+            persistenceError = [persistenceError, message].compactMap { $0 }.joined(separator: " ")
+            logger.error("Failed to create storage directory: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private func ensureStorageDirectoryForSave() throws {
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+    }
+
+    private func backUpUnreadableStore() -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        let backupURL = directoryURL.appendingPathComponent("weeks-corrupt-\(formatter.string(from: Date())).json")
+        do {
+            if FileManager.default.fileExists(atPath: backupURL.path) {
+                try FileManager.default.removeItem(at: backupURL)
+            }
+            try FileManager.default.moveItem(at: fileURL, to: backupURL)
+            return " The unreadable file was moved to \(backupURL.lastPathComponent)."
+        } catch {
+            logger.error("Failed to back up unreadable weeks file: \(error.localizedDescription, privacy: .public)")
+            return " The unreadable file could not be backed up. \(error.localizedDescription)"
         }
     }
 }

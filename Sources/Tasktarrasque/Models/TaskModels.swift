@@ -60,6 +60,20 @@ struct WeekPlan: Identifiable, Codable, Equatable {
     ]
     var days: [DayPlan] = Weekday.allCases.map { DayPlan(weekday: $0) }
 
+    init(
+        id: UUID = UUID(),
+        startDate: Date,
+        thisWeekTasks: [TodoTask] = [],
+        bigThree: [TodoTask] = [],
+        days: [DayPlan] = Weekday.allCases.map { DayPlan(weekday: $0) }
+    ) {
+        self.id = id
+        self.startDate = startDate
+        self.thisWeekTasks = thisWeekTasks
+        self.bigThree = Self.normalizedBigThree(bigThree)
+        self.days = Self.normalizedDays(days)
+    }
+
     /// A Big Three slot counts toward the score only when it has a title.
     /// An empty slot is ignored even if its checkmark was toggled, so the
     /// completed count can never exceed the total count.
@@ -84,6 +98,35 @@ struct WeekPlan: Identifiable, Codable, Equatable {
     }
 
     var pickerTitle: String { "\(title)  •  \(scoreText)" }
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case startDate
+        case thisWeekTasks
+        case bigThree
+        case days
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        startDate = try container.decode(Date.self, forKey: .startDate)
+        thisWeekTasks = try container.decodeIfPresent([TodoTask].self, forKey: .thisWeekTasks) ?? []
+        bigThree = Self.normalizedBigThree(try container.decodeIfPresent([TodoTask].self, forKey: .bigThree) ?? [])
+        days = Self.normalizedDays(try container.decodeIfPresent([DayPlan].self, forKey: .days) ?? [])
+    }
+
+    private static func normalizedBigThree(_ tasks: [TodoTask]) -> [TodoTask] {
+        var result = Array(tasks.prefix(3))
+        while result.count < 3 { result.append(TodoTask(title: "")) }
+        return result
+    }
+
+    private static func normalizedDays(_ days: [DayPlan]) -> [DayPlan] {
+        Weekday.allCases.map { weekday in
+            days.first { $0.weekday == weekday } ?? DayPlan(weekday: weekday)
+        }
+    }
 }
 
 struct WeeklyTemplate: Codable, Equatable {

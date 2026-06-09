@@ -183,6 +183,44 @@ func runAll() -> Int {
         r.expectEqual(reloaded.selectedWeek?.bigThree.first?.title, "Big goal", "Big Three survives reload")
     }
 
+    r.test("corrupt data file is backed up before fresh data is saved") {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TasktarrasqueTests-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let file = dir.appendingPathComponent("weeks.json")
+        try? Data("not valid json".utf8).write(to: file)
+
+        let store = TaskStore(directoryURL: dir)
+        let files = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
+        let backups = files.filter { $0.hasPrefix("weeks-corrupt-") && $0.hasSuffix(".json") }
+
+        r.expectEqual(store.weeks.count, 1, "a fresh week should be created after bad data is moved aside")
+        r.expect(store.persistenceError?.contains("could not be read") == true, "the load error remains visible")
+        r.expectEqual(backups.count, 1, "the corrupt file is preserved as a backup")
+        r.expect(FileManager.default.fileExists(atPath: file.path), "a new weeks file is saved")
+    }
+
+    r.test("legacy week data decodes with defaulted fields") {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TasktarrasqueTests-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let encodedDate = String(
+            data: try! JSONEncoder().encode(Date(timeIntervalSinceReferenceDate: 0)),
+            encoding: .utf8
+        )!
+        let json = """
+        {"weeks":[{"startDate":\(encodedDate)}]}
+        """
+        try? Data(json.utf8).write(to: dir.appendingPathComponent("weeks.json"))
+
+        let store = TaskStore(directoryURL: dir)
+        r.expectEqual(store.weeks.count, 1, "legacy data should load one week")
+        r.expectEqual(store.selectedDay, .monday, "missing selected day defaults to Monday")
+        r.expectEqual(store.selectedWeek?.bigThree.count, 3, "missing Big Three defaults to three slots")
+        r.expectEqual(store.selectedWeek?.days.count, 7, "missing days default to a full week")
+        r.expectEqual(store.persistenceError, nil, "legacy-compatible data should not show an error")
+    }
+
     r.test("template decodes old data that still has bigThreeTitles") {
         // Older saves wrote a now-removed bigThreeTitles field; decoding must
         // ignore the unknown key rather than fail.
