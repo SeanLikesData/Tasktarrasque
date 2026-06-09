@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 struct ContentView: View {
     @EnvironmentObject private var store: TaskStore
     @AppStorage(SettingsKey.theme) private var themeRaw = AppTheme.system.rawValue
-    @AppStorage(SettingsKey.popoverSize) private var popoverRaw = PopoverSize.large.rawValue
+    @AppStorage(SettingsKey.popoverSize) private var popoverRaw = PopoverSize.default.rawValue
     @State private var showingSettings = false
     @State private var showingTemplate = false
     @State private var showingShortcuts = false
@@ -14,7 +14,7 @@ struct ContentView: View {
     @FocusState private var focusedTask: FocusedTask?
     @FocusState private var focusedRenameField: FocusedTask?
 
-    private var popoverSize: CGSize { (PopoverSize(rawValue: popoverRaw) ?? .large).dimensions }
+    private var popoverSize: CGSize { (PopoverSize(rawValue: popoverRaw) ?? .default).dimensions }
     private var colorScheme: ColorScheme? { (AppTheme(rawValue: themeRaw) ?? .system).colorScheme }
 
     var body: some View {

@@ -3,7 +3,7 @@ import SwiftUI
 struct SettingsSheet: View {
     @EnvironmentObject private var store: TaskStore
     @AppStorage(SettingsKey.theme) private var themeRaw = AppTheme.system.rawValue
-    @AppStorage(SettingsKey.popoverSize) private var popoverRaw = PopoverSize.large.rawValue
+    @AppStorage(SettingsKey.popoverSize) private var popoverRaw = PopoverSize.default.rawValue
     @AppStorage(SettingsKey.pinned) private var pinned = false
     let onClose: () -> Void
 

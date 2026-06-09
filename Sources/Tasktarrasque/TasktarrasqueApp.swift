@@ -117,16 +117,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Reads the saved popover-size preference and returns its pixel
-    /// dimensions, defaulting to medium.
-    private func currentPopoverSize() -> NSSize {
-        let raw = UserDefaults.standard.string(forKey: SettingsKey.popoverSize)
-        let size = (raw.flatMap(PopoverSize.init(rawValue:)) ?? .medium).dimensions
-        return NSSize(width: size.width, height: size.height)
-    }
-
+    /// dimensions. Uses the same default as the SwiftUI content so the window
+    /// and its content agree on first launch.
     private func windowSize() -> NSSize {
-        let contentSize = currentPopoverSize()
-        return contentSize
+        let size = PopoverSize.saved.dimensions
+        return NSSize(width: size.width, height: size.height)
     }
 
     private var isPinned: Bool {
