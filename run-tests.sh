@@ -24,6 +24,7 @@ SOURCES=(
     Sources/Tasktarrasque/Models/TaskModels.swift
     Sources/Tasktarrasque/Models/TaskInteractionModel.swift
     Sources/Tasktarrasque/Models/NoteStore.swift
+    Sources/Tasktarrasque/Models/AppController.swift
     Tests/main.swift
 )
 

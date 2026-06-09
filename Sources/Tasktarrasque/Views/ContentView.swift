@@ -4,18 +4,36 @@ import UniformTypeIdentifiers
 
 struct ContentView: View {
     @EnvironmentObject private var store: TaskStore
+    @EnvironmentObject private var controller: AppController
     @AppStorage(SettingsKey.popoverSize) private var popoverRaw = PopoverSize.default.rawValue
-    @StateObject private var interaction = TaskInteractionModel()
     @State private var draggedThisWeekTaskID: UUID?
     @State private var draggedDayTaskID: UUID?
 
     private var popoverSize: CGSize { (PopoverSize(rawValue: popoverRaw) ?? .default).dimensions }
 
-    private var isSheetOpen: Bool { interaction.activeSheet != nil || interaction.weekPendingDeletion != nil }
-
     var body: some View {
         ZStack {
             TasktarrasqueStyle.panelMaterial
+            routeContent
+            if controller.route == .main, let week = controller.weekPendingDeletion {
+                deleteWeekConfirmation(week).zIndex(3)
+            }
+            if let persistenceError = store.persistenceError {
+                errorBanner(persistenceError)
+            }
+        }
+        .preferredColorScheme(.dark)
+        .onChange(of: store.selectedWeekID) { _, _ in controller.validateMainSelection() }
+        .onChange(of: store.selectedDay) { _, _ in controller.validateMainSelection() }
+        .frame(width: popoverSize.width, height: popoverSize.height)
+        .clipShape(RoundedRectangle(cornerRadius: TasktarrasqueStyle.panelCornerRadius, style: .continuous))
+        .overlay(TasktarrasqueStyle.panelBorder)
+    }
+
+    @ViewBuilder
+    private var routeContent: some View {
+        switch controller.route {
+        case .main:
             VStack(spacing: 0) {
                 header
                 TasktarrasqueStyle.divider
@@ -24,109 +42,28 @@ struct ContentView: View {
                 mainBody
                 TasktarrasqueStyle.divider
                 BottomBar(
-                    onTemplate: { interaction.activeSheet = .template },
-                    onShortcuts: { interaction.activeSheet = .shortcuts },
-                    onSettings: { interaction.activeSheet = .settings }
+                    onTemplate: { controller.showTemplate() },
+                    onShortcuts: { controller.showShortcuts() },
+                    onSettings: { controller.showSettings() }
                 )
             }
-            .onMoveCommand { direction in
-                guard interaction.canUseMainShortcuts else { return }
-                moveSelection(direction)
-            }
-            .onDeleteCommand {
-                guard interaction.canUseMainShortcuts else { return }
-                deleteSelectedItem()
-            }
-            .onKeyPress(.return) {
-                guard !isSheetOpen else { return .ignored }
-                if interaction.editSession != nil {
-                    interaction.commitEdit(using: store)
-                } else {
-                    beginRenamingSelectedItem()
-                }
-                return .handled
-            }
-            .onKeyPress("d") {
-                guard interaction.canUseMainShortcuts else { return .ignored }
-                toggleSelectedItem()
-                return .handled
-            }
-            .onExitCommand {
-                if interaction.weekPendingDeletion != nil {
-                    interaction.weekPendingDeletion = nil
-                } else if interaction.activeSheet != nil {
-                    interaction.activeSheet = nil
-                } else if interaction.editSession != nil {
-                    interaction.cancelEdit()
-                } else {
-                    interaction.selectedItem = nil
-                }
-            }
-            .onKeyPress("n") {
-                guard interaction.canUseMainShortcuts else { return .ignored }
-                createTaskInSelectedDay()
-                return .handled
-            }
-            .onKeyPress("w") {
-                guard interaction.canUseMainShortcuts else { return .ignored }
-                createThisWeekTask()
-                return .handled
-            }
-            .onKeyPress("?") {
-                guard interaction.canUseMainShortcuts else { return .ignored }
-                interaction.activeSheet = .shortcuts
-                return .handled
-            }
-            .onKeyPress(keys: [.upArrow]) { press in
-                guard interaction.canUseMainShortcuts, press.modifiers.contains(.shift) else { return .ignored }
-                moveSelectedItemByKeyboard(offset: -1)
-                return .handled
-            }
-            .onKeyPress(keys: [.downArrow]) { press in
-                guard interaction.canUseMainShortcuts, press.modifiers.contains(.shift) else { return .ignored }
-                moveSelectedItemByKeyboard(offset: 1)
-                return .handled
-            }
-            .onKeyPress(keys: [.leftArrow]) { press in
-                guard interaction.canUseMainShortcuts, press.modifiers.contains(.shift) else { return .ignored }
-                moveSelectedItemSideways(toDay: false)
-                return .handled
-            }
-            .onKeyPress(keys: [.rightArrow]) { press in
-                guard interaction.canUseMainShortcuts, press.modifiers.contains(.shift) else { return .ignored }
-                moveSelectedItemSideways(toDay: true)
-                return .handled
-            }
-            .onKeyPress("r") {
-                guard interaction.canUseMainShortcuts else { return .ignored }
-                beginRenamingSelectedItem()
-                return .handled
-            }
-            if interaction.activeSheet == .settings { SettingsSheet(onClose: { interaction.activeSheet = nil }).zIndex(2) }
-            if interaction.activeSheet == .template { TemplateSheet(onClose: { interaction.activeSheet = nil }).environmentObject(store).zIndex(2) }
-            if interaction.activeSheet == .shortcuts { KeyboardShortcutsSheet(onClose: { interaction.activeSheet = nil }).zIndex(2) }
-            if let week = interaction.weekPendingDeletion { deleteWeekConfirmation(week).zIndex(3) }
-            if let persistenceError = store.persistenceError { errorBanner(persistenceError) }
+        case .template:
+            TemplateSheet()
+        case .settings:
+            SettingsSheet(onClose: { controller.returnToMain() })
+        case .shortcuts:
+            KeyboardShortcutsSheet(onClose: { controller.returnToMain() })
         }
-        .preferredColorScheme(.dark)
-        .onReceive(NotificationCenter.default.publisher(for: .tasktarrasquePopoverWillClose)) { _ in
-            interaction.closeTransientState(committingWith: store)
-        }
-        .onChange(of: store.selectedWeekID) { _, _ in validateSelectionAfterScopeChange() }
-        .onChange(of: store.selectedDay) { _, _ in validateSelectionAfterScopeChange() }
-        .frame(width: popoverSize.width, height: popoverSize.height)
-        .clipShape(RoundedRectangle(cornerRadius: TasktarrasqueStyle.panelCornerRadius, style: .continuous))
-        .overlay(TasktarrasqueStyle.panelBorder)
     }
 
     private var header: some View {
         HStack(spacing: 8) {
-            Picker("Week", selection: Binding(get: { store.selectedWeekID ?? store.weeks.first?.id ?? UUID() }, set: { store.selectWeek($0) })) {
+            Picker("Week", selection: Binding(get: { store.selectedWeekID ?? store.weeks.first?.id ?? UUID() }, set: { controller.selectWeek($0) })) {
                 ForEach(store.weeks) { week in Text(week.pickerTitle).tag(week.id) }
             }
             .labelsHidden()
             .frame(maxWidth: 270)
-            Button { store.createNewWeek() } label: {
+            Button { controller.createNewWeek() } label: {
                 HStack(spacing: 5) {
                     Image(systemName: "plus")
                     Text("New Week")
@@ -136,7 +73,7 @@ struct ContentView: View {
             .glassPill(cornerRadius: 8)
             .help("Create the next week")
             .accessibilityLabel("Create new week")
-            Button { interaction.weekPendingDeletion = store.selectedWeek } label: {
+            Button { controller.requestDeleteSelectedWeek() } label: {
                 Image(systemName: "trash")
             }
             .buttonStyle(.plain)
@@ -155,7 +92,7 @@ struct ContentView: View {
             ForEach(Weekday.allCases) { day in
                 let plan = store.selectedWeek?.days.first { $0.weekday == day }
                 let score = plan?.scoreText ?? "0/0"
-                Button { store.selectedDay = day } label: {
+                Button { controller.selectDay(day) } label: {
                     HStack(spacing: 5) {
                         Text(day.shortName)
                         Spacer(minLength: 2)
@@ -191,7 +128,7 @@ struct ContentView: View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    SharedSectionHeader(title: "This Week", shortcut: "W") { createThisWeekTask() }
+                    SharedSectionHeader(title: "This Week", shortcut: "W") { controller.createThisWeekTask() }
                     bigThree
                     VStack(spacing: 8) {
                         if let week = store.selectedWeek {
@@ -206,16 +143,18 @@ struct ContentView: View {
                                     ForEach(Weekday.allCases) { day in
                                         Button("Move to \(day.rawValue)") {
                                             store.moveThisWeekTask(task.id, to: day)
-                                            interaction.select(.dayTask(weekID: week.id, weekday: day, taskID: task.id))
+                                            controller.selectDay(day)
+                                            controller.selectTaskItem(.dayTask(weekID: week.id, weekday: day, taskID: task.id))
+                                            controller.validateMainSelection()
                                         }
                                     }
                                     Divider()
                                     Button("Push to Next Week") {
                                         store.pushThisWeekTaskToNextWeek(task.id)
-                                        interaction.validateVisibleItems(selectionOrder())
+                                        controller.validateMainSelection()
                                     }
                                     Button(role: .destructive) {
-                                        deleteItem(address)
+                                        controller.deleteTaskItem(address)
                                     } label: {
                                         Text("Delete")
                                     }
@@ -242,7 +181,7 @@ struct ContentView: View {
                                     onToggle: nil
                                 ) {
                                     Button(role: .destructive) {
-                                        interaction.cancelEdit()
+                                        controller.cancelTaskEdit()
                                     } label: {
                                         Text("Cancel")
                                     }
@@ -260,7 +199,7 @@ struct ContentView: View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(spacing: 10) {
-                    SharedSectionHeader(title: "Tasks", shortcut: "N") { createTaskInSelectedDay() }
+                    SharedSectionHeader(title: "Tasks", shortcut: "N") { controller.createTaskInSelectedDay() }
                     if let week = store.selectedWeek,
                        let dayPlan = store.selectedDayPlan,
                        !dayPlan.habits.isEmpty {
@@ -276,7 +215,7 @@ struct ContentView: View {
                                 onToggle: { store.toggleItem(address) }
                             ) {
                                 Button(role: .destructive) {
-                                    deleteItem(address)
+                                    controller.deleteTaskItem(address)
                                 } label: {
                                     Text("Delete")
                                 }
@@ -304,7 +243,7 @@ struct ContentView: View {
                                 onToggle: nil
                             ) {
                                 Button(role: .destructive) {
-                                    interaction.cancelEdit()
+                                    controller.cancelTaskEdit()
                                 } label: {
                                     Text("Cancel")
                                 }
@@ -331,7 +270,7 @@ struct ContentView: View {
                         habitID: habit.id
                     )
                     Button {
-                        interaction.select(address)
+                        controller.selectTaskItem(address)
                         store.toggleItem(address)
                     } label: {
                         HStack(spacing: 6) {
@@ -349,7 +288,7 @@ struct ContentView: View {
                     .accessibilityValue(habit.isDone ? "done" : "not done")
                     .background(
                         RoundedRectangle(cornerRadius: 8)
-                            .stroke(interaction.selectedItem == address ? TasktarrasqueStyle.activeControlStroke : Color.clear)
+                            .stroke(controller.selectedTaskItem == address ? TasktarrasqueStyle.activeControlStroke : Color.clear)
                     )
                 }
             }
@@ -365,7 +304,7 @@ struct ContentView: View {
                     let address = TaskItemAddress.bigThree(weekID: week.id, index: index)
                     HStack(spacing: 7) {
                         Button {
-                            interaction.select(address)
+                            controller.selectTaskItem(address)
                             store.toggleItem(address)
                         } label: {
                             Image(systemName: task?.isDone == true ? "checkmark.circle.fill" : "circle")
@@ -373,15 +312,15 @@ struct ContentView: View {
                         .buttonStyle(.plain)
                         .accessibilityLabel(task?.isDone == true ? "Mark not done" : "Mark done")
                         Group {
-                            if interaction.editSession?.target == address {
+                            if controller.taskEditSession?.target == address {
                                 FirstResponderTextField(
                                     text: editTitleBinding(for: address, currentTitle: task?.title ?? ""),
                                     placeholder: "Big task \(index + 1)",
                                     isFirstResponder: true
                                 ) {
-                                    interaction.commitEdit(using: store)
+                                    controller.commitTaskEdit()
                                 } onCancel: {
-                                    interaction.cancelEdit()
+                                    controller.cancelTaskEdit()
                                 }
                                 .frame(height: 18)
                             } else {
@@ -390,7 +329,7 @@ struct ContentView: View {
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .contentShape(Rectangle())
                                     .onTapGesture {
-                                        beginEditing(address, currentTitle: task?.title ?? "")
+                                        controller.selectTaskItem(address)
                                     }
                                     .onTapGesture(count: 2) {
                                         beginEditing(address, currentTitle: task?.title ?? "")
@@ -400,9 +339,9 @@ struct ContentView: View {
                         .strikethrough(task?.isDone == true)
                     }
                     .padding(7)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(interaction.selectedItem == address ? TasktarrasqueStyle.activeControlBackground : TasktarrasqueStyle.editorBackground))
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(interaction.selectedItem == address ? TasktarrasqueStyle.activeControlStroke : Color.clear))
-                    .onTapGesture { interaction.select(address) }
+                    .background(RoundedRectangle(cornerRadius: 8).fill(controller.selectedTaskItem == address ? TasktarrasqueStyle.activeControlBackground : TasktarrasqueStyle.editorBackground))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(controller.selectedTaskItem == address ? TasktarrasqueStyle.activeControlStroke : Color.clear))
+                    .onTapGesture { controller.selectTaskItem(address) }
                 }
             }
         }
@@ -418,21 +357,21 @@ struct ContentView: View {
         SharedTaskCard(
             title: editTitleBinding(for: address, currentTitle: title),
             placeholder: "Task",
-            isSelected: interaction.selectedItem == address,
-            isEditing: interaction.editSession?.target == address,
+            isSelected: controller.selectedTaskItem == address,
+            isEditing: controller.taskEditSession?.target == address,
             isChecked: isChecked,
             checkIcon: "checkmark.circle.fill",
             uncheckedIcon: "circle",
             onToggle: onToggle.map { action in
                 {
-                    interaction.select(address)
+                    controller.selectTaskItem(address)
                     action()
                 }
             },
-            onSelect: { interaction.select(address) },
+            onSelect: { controller.selectTaskItem(address) },
             onBeginEdit: { beginEditing(address, currentTitle: title) },
-            onCommitEdit: { interaction.commitEdit(using: store) },
-            onCancelEdit: { interaction.cancelEdit() },
+            onCommitEdit: { controller.commitTaskEdit() },
+            onCancelEdit: { controller.cancelTaskEdit() },
             menu: menu
         )
     }
@@ -440,14 +379,14 @@ struct ContentView: View {
     private func editTitleBinding(for address: TaskItemAddress, currentTitle: String) -> Binding<String> {
         Binding(
             get: {
-                if interaction.editSession?.target == address {
-                    return interaction.editSession?.draftTitle ?? currentTitle
+                if controller.taskEditSession?.target == address {
+                    return controller.taskEditSession?.draftTitle ?? currentTitle
                 }
                 return currentTitle
             },
             set: { newTitle in
-                if interaction.editSession?.target == address {
-                    interaction.updateDraftTitle(newTitle)
+                if controller.taskEditSession?.target == address {
+                    controller.updateTaskEditDraft(newTitle)
                 } else {
                     store.updateTitle(for: address, title: newTitle)
                 }
@@ -456,32 +395,15 @@ struct ContentView: View {
     }
 
     private func beginEditing(_ address: TaskItemAddress, currentTitle: String) {
-        interaction.beginEdit(address, currentTitle: store.title(for: address) ?? currentTitle)
-    }
-
-    private func createThisWeekTask() {
-        guard let weekID = store.selectedWeek?.id else { return }
-        interaction.beginNewTask(in: .thisWeek(weekID: weekID))
-    }
-
-    private func createTaskInSelectedDay() {
-        guard let weekID = store.selectedWeek?.id else { return }
-        interaction.beginNewTask(in: .dayTask(weekID: weekID, weekday: store.selectedDay))
+        controller.beginTaskEdit(address, fallbackTitle: currentTitle)
     }
 
     private func pendingNewThisWeekAddress(for weekID: UUID) -> TaskItemAddress? {
-        guard let editSession = interaction.editSession,
-              case .new(.thisWeek(let pendingWeekID)) = editSession.mode,
-              pendingWeekID == weekID else { return nil }
-        return editSession.target
+        controller.pendingNewThisWeekAddress(for: weekID)
     }
 
     private func pendingNewDayTaskAddress(weekID: UUID, weekday: Weekday) -> TaskItemAddress? {
-        guard let editSession = interaction.editSession,
-              case .new(.dayTask(let pendingWeekID, let pendingWeekday)) = editSession.mode,
-              pendingWeekID == weekID,
-              pendingWeekday == weekday else { return nil }
-        return editSession.target
+        controller.pendingNewDayTaskAddress(weekID: weekID, weekday: weekday)
     }
 
     private func handleThisWeekDrop(_ providers: [NSItemProvider]) -> Bool {
@@ -491,151 +413,13 @@ struct ContentView: View {
                   let taskID = UUID(uuidString: rawID) else { return }
             Task { @MainActor in
                 store.moveThisWeekTask(taskID, to: store.selectedDay)
+                if let weekID = store.selectedWeekID {
+                    controller.selectTaskItem(.dayTask(weekID: weekID, weekday: store.selectedDay, taskID: taskID))
+                }
+                controller.validateMainSelection()
             }
         }
         return true
-    }
-
-    private func moveSelection(_ direction: MoveCommandDirection) {
-        guard let selectedItem = interaction.selectedItem else {
-            interaction.selectedItem = selectionOrder().first
-            return
-        }
-
-        switch direction {
-        case .up:
-            moveSelectionVertically(from: selectedItem, offset: -1)
-        case .down:
-            moveSelectionVertically(from: selectedItem, offset: 1)
-        case .left:
-            moveSelectionHorizontally(from: selectedItem, toRightColumn: false)
-        case .right:
-            moveSelectionHorizontally(from: selectedItem, toRightColumn: true)
-        @unknown default:
-            break
-        }
-    }
-
-    private func moveSelectionVertically(from current: TaskItemAddress, offset: Int) {
-        let items = selectionColumn(containing: current)
-        guard !items.isEmpty, let index = items.firstIndex(of: current) else { return }
-        interaction.selectedItem = items[max(0, min(index + offset, items.count - 1))]
-    }
-
-    private func moveSelectionHorizontally(from current: TaskItemAddress, toRightColumn: Bool) {
-        let source = selectionColumn(containing: current)
-        let target = toRightColumn ? rightColumnSelectionOrder() : leftColumnSelectionOrder()
-        guard !target.isEmpty else { return }
-        let sourceIndex = source.firstIndex(of: current) ?? 0
-        interaction.selectedItem = target[min(sourceIndex, target.count - 1)]
-    }
-
-    private func selectionColumn(containing item: TaskItemAddress) -> [TaskItemAddress] {
-        switch item {
-        case .bigThree, .thisWeek:
-            leftColumnSelectionOrder()
-        case .habit, .dayTask:
-            rightColumnSelectionOrder()
-        }
-    }
-
-    private func deleteSelectedItem() {
-        guard let selectedItem = interaction.selectedItem else { return }
-        deleteItem(selectedItem)
-    }
-
-    private func deleteItem(_ item: TaskItemAddress) {
-        let nextSelection = neighborSelection(of: item)
-        store.deleteItem(item)
-        interaction.selectedItem = nextSelection ?? selectionOrder().first
-    }
-
-    /// The item that should be selected after `item` is deleted: the next
-    /// item in the same column, or the previous one if it was last.
-    private func neighborSelection(of item: TaskItemAddress) -> TaskItemAddress? {
-        let column = selectionColumn(containing: item)
-        guard let index = column.firstIndex(of: item) else { return nil }
-        if index + 1 < column.count { return column[index + 1] }
-        if index - 1 >= 0 { return column[index - 1] }
-        return nil
-    }
-
-    /// Enters rename mode only for items that have an editable text field.
-    /// Habits are toggle-only and have no rename field, so renaming them would
-    /// leave an invisible, dead rename state.
-    private func beginRenamingSelectedItem() {
-        guard let selectedItem = interaction.selectedItem,
-              let title = store.title(for: selectedItem) else { return }
-        interaction.beginEdit(selectedItem, currentTitle: title)
-    }
-
-    private func toggleSelectedItem() {
-        guard let selectedItem = interaction.selectedItem else { return }
-        store.toggleItem(selectedItem)
-    }
-
-    private func moveSelectedItemByKeyboard(offset: Int) {
-        guard let selectedItem = interaction.selectedItem else { return }
-        switch selectedItem {
-        case .thisWeek(let weekID, let taskID):
-            guard store.selectedWeekID == weekID else { return }
-            store.moveThisWeekTaskByKeyboard(taskID, offset: offset)
-        case .dayTask(let weekID, let weekday, let taskID):
-            guard store.selectedWeekID == weekID, store.selectedDay == weekday else { return }
-            store.moveDayTaskByKeyboard(taskID, offset: offset)
-        case .habit, .bigThree:
-            return
-        }
-        interaction.validateVisibleItems(selectionOrder())
-    }
-
-    private func moveSelectedItemSideways(toDay: Bool) {
-        guard let selectedItem = interaction.selectedItem else { return }
-        switch (selectedItem, toDay) {
-        case (.thisWeek(let weekID, let taskID), true):
-            guard store.selectedWeekID == weekID else { return }
-            store.moveThisWeekTask(taskID, to: store.selectedDay)
-            interaction.select(.dayTask(weekID: weekID, weekday: store.selectedDay, taskID: taskID))
-        case (.dayTask(let weekID, let weekday, let taskID), false):
-            guard store.selectedWeekID == weekID, store.selectedDay == weekday else { return }
-            store.moveDayTaskToThisWeek(taskID)
-            interaction.select(.thisWeek(weekID: weekID, taskID: taskID))
-        default:
-            return
-        }
-    }
-
-    private func selectionOrder() -> [TaskItemAddress] {
-        leftColumnSelectionOrder() + rightColumnSelectionOrder()
-    }
-
-    private func validateSelectionAfterScopeChange() {
-        interaction.validateVisibleItems(selectionOrder())
-    }
-
-    private func leftColumnSelectionOrder() -> [TaskItemAddress] {
-        guard let week = store.selectedWeek else { return [] }
-        let bigThree = [0, 1, 2].map { TaskItemAddress.bigThree(weekID: week.id, index: $0) }
-        var thisWeek = week.thisWeekTasks.map { TaskItemAddress.thisWeek(weekID: week.id, taskID: $0.id) }
-        if let pending = pendingNewThisWeekAddress(for: week.id) {
-            thisWeek.append(pending)
-        }
-        return bigThree + thisWeek
-    }
-
-    private func rightColumnSelectionOrder() -> [TaskItemAddress] {
-        guard let week = store.selectedWeek,
-              let dayPlan = store.selectedDayPlan else { return [] }
-        let habits = dayPlan.habits.map {
-            TaskItemAddress.habit(weekID: week.id, weekday: dayPlan.weekday, habitID: $0.id)
-        }
-        var day = dayPlan.tasks.map {
-            TaskItemAddress.dayTask(weekID: week.id, weekday: dayPlan.weekday, taskID: $0.id)
-        }
-        if let pending = pendingNewDayTaskAddress(weekID: week.id, weekday: dayPlan.weekday) {
-            day.append(pending)
-        }
-        return habits + day
     }
 
     private func deleteWeekConfirmation(_ week: WeekPlan) -> some View {
@@ -643,7 +427,7 @@ struct ContentView: View {
         return ZStack {
             Color.black.opacity(0.45)
                 .contentShape(Rectangle())
-                .onTapGesture { interaction.weekPendingDeletion = nil }
+                .onTapGesture { controller.cancelWeekDeletion() }
             VStack(alignment: .leading, spacing: 14) {
                 Text("Delete this week?")
                     .font(.system(size: 17, weight: .bold))
@@ -653,14 +437,12 @@ struct ContentView: View {
                     .fixedSize(horizontal: false, vertical: true)
                 HStack {
                     Spacer()
-                    Button("Cancel") { interaction.weekPendingDeletion = nil }
+                    Button("Cancel") { controller.cancelWeekDeletion() }
                         .buttonStyle(.plain)
                         .keyboardShortcut(.cancelAction)
                         .glassPill(cornerRadius: 8)
                     Button("Delete Week") {
-                        store.deleteWeek(week.id)
-                        interaction.weekPendingDeletion = nil
-                        interaction.validateVisibleItems(selectionOrder())
+                        controller.confirmWeekDeletion()
                     }
                     .buttonStyle(.plain)
                     .keyboardShortcut(.defaultAction)

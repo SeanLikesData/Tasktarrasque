@@ -24,10 +24,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let menuBarGap: CGFloat = 1
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let store = TaskStore()
+    private lazy var controller = AppController(store: store)
     private let logger = Logger(subsystem: "com.tasktarrasque.app", category: "popover")
 
     private var panel: TasktarrasquePanel?
-    private var monitor: Any?
+    private var globalMonitor: Any?
+    private var localKeyMonitor: Any?
     private var defaultsObserver: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -57,6 +59,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         store.flushPendingSave()
         removeGlobalMonitor()
+        removeLocalKeyMonitor()
         if let defaultsObserver {
             NotificationCenter.default.removeObserver(defaultsObserver)
             self.defaultsObserver = nil
@@ -110,6 +113,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.contentViewController = NSHostingController(
             rootView: ContentView()
+                .environmentObject(controller)
                 .environmentObject(store)
         )
         self.panel = panel
@@ -149,14 +153,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.orderFrontRegardless()
         panel.makeKey()
         updateGlobalMonitor()
+        installLocalKeyMonitor()
     }
 
     private func closePopover() {
-        // Let the content reset any open sheet and rename state so reopening
-        // returns to the main view instead of a stale sheet.
-        NotificationCenter.default.post(name: .tasktarrasquePopoverWillClose, object: nil)
+        controller.resetForPopoverClose()
         panel?.orderOut(nil)
         removeGlobalMonitor()
+        removeLocalKeyMonitor()
         logger.debug("Popover closed")
     }
 
@@ -191,15 +195,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // dismisses it, matching standard menu bar popover behavior. When
         // pinned, the panel stays open and floats above other windows.
         guard panel?.isVisible == true, !isPinned else { return }
-        monitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+        globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
             Task { @MainActor in self?.closePopover() }
         }
     }
 
     private func removeGlobalMonitor() {
-        if let monitor {
-            NSEvent.removeMonitor(monitor)
-            self.monitor = nil
+        if let globalMonitor {
+            NSEvent.removeMonitor(globalMonitor)
+            self.globalMonitor = nil
+        }
+    }
+
+    private func installLocalKeyMonitor() {
+        removeLocalKeyMonitor()
+        guard panel?.isVisible == true else { return }
+        localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self, self.panel?.isKeyWindow == true else { return event }
+            return self.controller.handleKeyDown(event) ? nil : event
+        }
+    }
+
+    private func removeLocalKeyMonitor() {
+        if let localKeyMonitor {
+            NSEvent.removeMonitor(localKeyMonitor)
+            self.localKeyMonitor = nil
         }
     }
 }
@@ -207,10 +227,4 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 final class TasktarrasquePanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
-}
-
-extension Notification.Name {
-    /// Posted just before the popover is hidden so the content can reset
-    /// transient state (open sheets, in-progress rename).
-    static let tasktarrasquePopoverWillClose = Notification.Name("TasktarrasquePopoverWillClose")
 }

@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 
 // Standalone test runner for Tasktarrasque's model logic. SwiftPM does not
 // build on a Command-Line-Tools-only machine, so this is compiled directly
@@ -33,6 +34,21 @@ func makeTempStore() -> (TaskStore, URL) {
     let dir = FileManager.default.temporaryDirectory
         .appendingPathComponent("TasktarrasqueTests-\(UUID().uuidString)", isDirectory: true)
     return (TaskStore(directoryURL: dir), dir)
+}
+
+func makeKeyEvent(_ character: String, keyCode: UInt16 = 0) -> NSEvent {
+    NSEvent.keyEvent(
+        with: .keyDown,
+        location: .zero,
+        modifierFlags: [],
+        timestamp: 0,
+        windowNumber: 0,
+        context: nil,
+        characters: character,
+        charactersIgnoringModifiers: character.lowercased(),
+        isARepeat: false,
+        keyCode: keyCode
+    )!
 }
 
 // MARK: - Tests
@@ -84,32 +100,77 @@ func runAll() -> Int {
 
     r.test("pending new task is not saved when committed blank") {
         let (store, _) = makeTempStore()
-        let interaction = TaskInteractionModel()
-        let weekID = store.selectedWeek!.id
-        interaction.beginNewTask(in: .dayTask(weekID: weekID, weekday: .monday))
-        interaction.commitEdit(using: store)
+        let controller = AppController(store: store)
+        controller.createTaskInSelectedDay()
+        controller.commitTaskEdit()
 
         let monday = store.selectedWeek?.days.first { $0.weekday == .monday }
         r.expectEqual(monday?.tasks.count, 0, "blank pending task should not be saved")
-        r.expectEqual(interaction.selectedItem, nil, "blank pending task should not leave stale selection")
-        r.expectEqual(interaction.editSession, nil, "edit session should close")
+        r.expectEqual(controller.taskEditSession, nil, "edit session should close")
     }
 
     r.test("pending new task commits with stable address") {
         let (store, _) = makeTempStore()
-        let interaction = TaskInteractionModel()
-        let weekID = store.selectedWeek!.id
-        interaction.beginNewTask(in: .dayTask(weekID: weekID, weekday: .monday))
-        guard let target = interaction.editSession?.target else {
+        let controller = AppController(store: store)
+        controller.createTaskInSelectedDay()
+        guard let target = controller.taskEditSession?.target else {
             r.expect(false, "new task should create an edit target")
             return
         }
-        interaction.updateDraftTitle("Plan release")
-        interaction.commitEdit(using: store)
+        controller.updateTaskEditDraft("Plan release")
+        controller.commitTaskEdit()
 
         let monday = store.selectedWeek?.days.first { $0.weekday == .monday }
         r.expectEqual(monday?.tasks.first?.title, "Plan release", "pending title should be saved")
-        r.expectEqual(interaction.selectedItem, target, "selection should stay on the committed task")
+        r.expectEqual(controller.selectedTaskItem, target, "selection should stay on the committed task")
+    }
+
+    r.test("controller handles N and W shortcuts without SwiftUI focus") {
+        let (store, _) = makeTempStore()
+        let controller = AppController(store: store)
+        let weekID = store.selectedWeek!.id
+
+        r.expect(controller.handleKeyDown(makeKeyEvent("n")), "N key should be handled")
+        if case .new(.dayTask(let targetWeekID, let weekday)) = controller.taskEditSession?.mode {
+            r.expectEqual(targetWeekID, weekID, "N targets the selected week")
+            r.expectEqual(weekday, .monday, "N targets the selected day")
+        } else {
+            r.expect(false, "N should start a pending day task edit")
+        }
+
+        controller.cancelTaskEdit()
+        r.expect(controller.handleKeyDown(makeKeyEvent("w")), "W key should be handled")
+        if case .new(.thisWeek(let targetWeekID)) = controller.taskEditSession?.mode {
+            r.expectEqual(targetWeekID, weekID, "W targets This Week in the selected week")
+        } else {
+            r.expect(false, "W should start a pending This Week edit")
+        }
+    }
+
+    r.test("controller template cancel discards draft edits") {
+        let (store, _) = makeTempStore()
+        let controller = AppController(store: store)
+        controller.showTemplate()
+        controller.beginNewTemplateItem(in: .habit)
+        controller.updateTemplateEditDraft("Read")
+        controller.commitTemplateEdit()
+        controller.cancelTemplateAndReturnToMain()
+
+        r.expectEqual(controller.route, .main, "cancel returns to the main route")
+        r.expectEqual(store.template.dailyHabits.count, 0, "cancel should not save template draft habits")
+    }
+
+    r.test("controller template save persists draft edits") {
+        let (store, _) = makeTempStore()
+        let controller = AppController(store: store)
+        controller.showTemplate()
+        controller.beginNewTemplateItem(in: .habit)
+        controller.updateTemplateEditDraft("Read")
+        controller.commitTemplateEdit()
+        controller.saveTemplateAndReturnToMain()
+
+        r.expectEqual(controller.route, .main, "save returns to the main route")
+        r.expectEqual(store.template.dailyHabits.map(\.title), ["Read"], "save persists template draft habits")
     }
 
     r.test("toggleDayTask flips completion") {

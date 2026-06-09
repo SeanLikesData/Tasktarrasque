@@ -78,7 +78,7 @@ struct SharedTaskCard<MenuContent: View>: View {
                         .foregroundStyle(title.isEmpty ? .secondary : .primary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(Rectangle())
-                        .onTapGesture { onBeginEdit() }
+                        .onTapGesture { onSelect() }
                         .onTapGesture(count: 2) { onBeginEdit() }
                 }
             }
@@ -151,6 +151,7 @@ struct FirstResponderTextField: NSViewRepresentable {
 
     final class Coordinator: NSObject, NSTextFieldDelegate {
         var parent: FirstResponderTextField
+        private var handledExplicitEnd = false
 
         init(parent: FirstResponderTextField) {
             self.parent = parent
@@ -162,6 +163,10 @@ struct FirstResponderTextField: NSViewRepresentable {
         }
 
         func controlTextDidEndEditing(_ notification: Notification) {
+            if handledExplicitEnd {
+                handledExplicitEnd = false
+                return
+            }
             guard let textField = notification.object as? NSTextField else { return }
             parent.text = textField.stringValue
             parent.onCommit()
@@ -173,10 +178,12 @@ struct FirstResponderTextField: NSViewRepresentable {
             doCommandBy commandSelector: Selector
         ) -> Bool {
             if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+                handledExplicitEnd = true
                 parent.onCommit()
                 return true
             }
             if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
+                handledExplicitEnd = true
                 parent.onCancel()
                 return true
             }

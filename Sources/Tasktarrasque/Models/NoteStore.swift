@@ -116,6 +116,11 @@ final class TaskStore: ObservableObject {
         saveNow()
     }
 
+    func selectDay(_ day: Weekday) {
+        selectedDay = day
+        saveNow()
+    }
+
     /// Deletes a week. The app always keeps at least one week, so deleting the
     /// last week creates a fresh empty one. After deletion the nearest
     /// remaining week is selected.

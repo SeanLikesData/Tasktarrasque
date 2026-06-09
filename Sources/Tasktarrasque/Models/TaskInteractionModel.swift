@@ -69,100 +69,6 @@ struct TaskEditSession: Equatable {
     var mode: Mode
 }
 
-enum ActiveSheet: Equatable {
-    case settings
-    case template
-    case shortcuts
-}
-
-@MainActor
-final class TaskInteractionModel: ObservableObject {
-    @Published var selectedItem: TaskItemAddress?
-    @Published var editSession: TaskEditSession?
-    @Published var activeSheet: ActiveSheet?
-    @Published var weekPendingDeletion: WeekPlan?
-
-    var canUseMainShortcuts: Bool {
-        activeSheet == nil && weekPendingDeletion == nil && editSession == nil
-    }
-
-    func select(_ item: TaskItemAddress) {
-        selectedItem = item
-    }
-
-    func beginEdit(_ item: TaskItemAddress, currentTitle: String) {
-        guard item.isEditable else { return }
-        selectedItem = item
-        editSession = TaskEditSession(
-            target: item,
-            originalTitle: currentTitle,
-            draftTitle: currentTitle,
-            mode: .existing
-        )
-    }
-
-    func beginNewTask(in target: TaskCreationTarget) {
-        let taskID = UUID()
-        let address = target.address(taskID: taskID)
-        selectedItem = address
-        editSession = TaskEditSession(
-            target: address,
-            originalTitle: "",
-            draftTitle: "",
-            mode: .new(target)
-        )
-    }
-
-    func updateDraftTitle(_ title: String) {
-        editSession?.draftTitle = title
-    }
-
-    func commitEdit(using store: TaskStore) {
-        guard let editSession else { return }
-        let title = editSession.draftTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        switch editSession.mode {
-        case .existing:
-            store.updateTitle(for: editSession.target, title: editSession.draftTitle)
-            selectedItem = editSession.target
-        case .new(let target):
-            if !title.isEmpty, let taskID = editSession.target.taskID {
-                _ = store.addTask(id: taskID, title: title, to: target)
-                selectedItem = editSession.target
-            } else {
-                selectedItem = nil
-            }
-        }
-
-        self.editSession = nil
-    }
-
-    func cancelEdit() {
-        editSession = nil
-    }
-
-    func closeTransientState(committingWith store: TaskStore) {
-        commitEdit(using: store)
-        activeSheet = nil
-        weekPendingDeletion = nil
-    }
-
-    func validateVisibleItems(_ visibleItems: [TaskItemAddress]) {
-        if let editSession, !visibleItems.contains(editSession.target) {
-            self.editSession = nil
-        }
-
-        guard let selectedItem else {
-            self.selectedItem = visibleItems.first
-            return
-        }
-
-        if !visibleItems.contains(selectedItem) {
-            self.selectedItem = visibleItems.first
-        }
-    }
-}
-
 enum TemplateItemAddress: Hashable {
     case habit(UUID)
     case thisWeek(UUID)
@@ -172,6 +78,12 @@ enum TemplateItemAddress: Hashable {
         if case .day = self { return true }
         return false
     }
+}
+
+enum TemplateListKind: Hashable {
+    case habits
+    case thisWeek
+    case day(Weekday)
 }
 
 enum TemplateCreationTarget: Hashable {
@@ -203,65 +115,8 @@ struct TemplateEditSession: Equatable {
     var mode: Mode
 }
 
-@MainActor
-final class TemplateInteractionModel: ObservableObject {
-    @Published var selectedItem: TemplateItemAddress?
-    @Published var editSession: TemplateEditSession?
-
-    var canUseShortcuts: Bool { editSession == nil }
-
-    func select(_ item: TemplateItemAddress) {
-        selectedItem = item
-    }
-
-    func beginEdit(_ item: TemplateItemAddress, currentTitle: String) {
-        selectedItem = item
-        editSession = TemplateEditSession(
-            target: item,
-            originalTitle: currentTitle,
-            draftTitle: currentTitle,
-            mode: .existing
-        )
-    }
-
-    func beginNewItem(in target: TemplateCreationTarget) {
-        let taskID = UUID()
-        let address = target.address(taskID: taskID)
-        selectedItem = address
-        editSession = TemplateEditSession(
-            target: address,
-            originalTitle: "",
-            draftTitle: "",
-            mode: .new(target)
-        )
-    }
-
-    func updateDraftTitle(_ title: String) {
-        editSession?.draftTitle = title
-    }
-
-    func cancelEdit() {
-        editSession = nil
-    }
-
-    func validateVisibleItems(_ visibleItems: [TemplateItemAddress]) {
-        if let editSession, !visibleItems.contains(editSession.target) {
-            self.editSession = nil
-        }
-
-        guard let selectedItem else {
-            self.selectedItem = visibleItems.first
-            return
-        }
-
-        if !visibleItems.contains(selectedItem) {
-            self.selectedItem = visibleItems.first
-        }
-    }
-}
-
 extension TaskItemAddress {
-    fileprivate var taskID: UUID? {
+    var taskID: UUID? {
         switch self {
         case .thisWeek(_, let taskID),
              .dayTask(_, _, let taskID):
@@ -270,6 +125,29 @@ extension TaskItemAddress {
             habitID
         case .bigThree:
             nil
+        }
+    }
+}
+
+extension TemplateItemAddress {
+    var itemID: UUID? {
+        switch self {
+        case .habit(let id),
+             .thisWeek(let id),
+             .day(_, let id):
+            id
+        }
+    }
+
+    func isSameTemplateList(as other: TemplateItemAddress) -> Bool {
+        switch (self, other) {
+        case (.habit, .habit),
+             (.thisWeek, .thisWeek):
+            true
+        case (.day(let lhsDay, _), .day(let rhsDay, _)):
+            lhsDay == rhsDay
+        default:
+            false
         }
     }
 }
