@@ -171,7 +171,6 @@ struct TemplateSheet: View {
                     renameFocus: $renameItem,
                     focusID: focus
                 ) {
-                    Button("Rename") { renameItem = focus }
                     Button(role: .destructive) { remove(task.id, from: tasks) } label: { Text("Delete") }
                 }
                 .focusable()

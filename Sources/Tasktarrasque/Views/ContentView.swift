@@ -342,14 +342,26 @@ struct ContentView: View {
                     .accessibilityLabel(task?.isDone == true ? "Mark not done" : "Mark done")
                     Group {
                         if focusedRenameField == .bigThree(index) {
-                            TextField("Big task \(index + 1)", text: Binding(get: { store.selectedWeek?.bigThree[safe: index]?.title ?? "" }, set: { store.updateBigThree(index: index, title: $0) }))
-                                .textFieldStyle(.plain)
-                                .focused($focusedRenameField, equals: .bigThree(index))
-                                .onSubmit { focusedRenameField = nil }
+                            FirstResponderTextField(
+                                text: Binding(
+                                    get: { store.selectedWeek?.bigThree[safe: index]?.title ?? "" },
+                                    set: { store.updateBigThree(index: index, title: $0) }
+                                ),
+                                placeholder: "Big task \(index + 1)",
+                                isFirstResponder: true
+                            ) {
+                                focusedRenameField = nil
+                            }
+                            .frame(height: 18)
                         } else {
                             Text((task?.title.isEmpty == false ? task?.title : "Big task \(index + 1)") ?? "Big task \(index + 1)")
                                 .foregroundStyle(task?.title.isEmpty == false ? .primary : .secondary)
                                 .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
+                                .onTapGesture(count: 2) {
+                                    focusedTask = .bigThree(index)
+                                    focusedRenameField = .bigThree(index)
+                                }
                         }
                     }
                     .strikethrough(task?.isDone == true)

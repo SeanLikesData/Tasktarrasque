@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct SharedSectionHeader: View {
     let title: String
@@ -59,22 +60,30 @@ struct SharedTaskCard<FocusValue: Hashable, MenuContent: View>: View {
 
             Group {
                 if renameFocus.wrappedValue == focusID {
-                    TextField(placeholder, text: $title)
-                        .textFieldStyle(.plain)
-                        .focused(renameFocus, equals: focusID)
-                        .onAppear { claimRenameFocus() }
-                        .onSubmit { renameFocus.wrappedValue = nil }
+                    FirstResponderTextField(
+                        text: $title,
+                        placeholder: placeholder,
+                        isFirstResponder: true
+                    ) {
+                        renameFocus.wrappedValue = nil
+                    }
+                    .frame(height: 18)
                 } else {
                     Text(title.isEmpty ? placeholder : title)
                         .foregroundStyle(title.isEmpty ? .secondary : .primary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(Rectangle())
+                        .onTapGesture(count: 2) { beginRename() }
                 }
             }
             .strikethrough(isChecked)
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            Menu(content: menu) {
+            Menu {
+                Button("Rename") { beginRename() }
+                Divider()
+                menu()
+            } label: {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 13, weight: .semibold))
                     .frame(width: 24, height: 22)
@@ -91,9 +100,83 @@ struct SharedTaskCard<FocusValue: Hashable, MenuContent: View>: View {
         .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(isSelected ? TasktarrasqueStyle.activeControlStroke : TasktarrasqueStyle.controlStroke))
     }
 
-    private func claimRenameFocus() {
+    private func beginRename() {
         DispatchQueue.main.async {
             renameFocus.wrappedValue = focusID
+        }
+    }
+}
+
+struct FirstResponderTextField: NSViewRepresentable {
+    @Binding var text: String
+    let placeholder: String
+    let isFirstResponder: Bool
+    let onCommit: () -> Void
+
+    func makeNSView(context: Context) -> NSTextField {
+        let textField = NSTextField(string: text)
+        textField.placeholderString = placeholder
+        textField.isBordered = false
+        textField.isBezeled = false
+        textField.drawsBackground = false
+        textField.focusRingType = .none
+        textField.font = .systemFont(ofSize: 13)
+        textField.textColor = .labelColor
+        textField.delegate = context.coordinator
+        textField.lineBreakMode = .byTruncatingTail
+        textField.cell?.wraps = false
+        textField.cell?.isScrollable = true
+        return textField
+    }
+
+    func updateNSView(_ textField: NSTextField, context: Context) {
+        context.coordinator.parent = self
+        if textField.stringValue != text {
+            textField.stringValue = text
+        }
+        guard isFirstResponder else { return }
+        DispatchQueue.main.async {
+            guard textField.window?.firstResponder !== textField.currentEditor() else { return }
+            textField.window?.makeFirstResponder(textField)
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        var parent: FirstResponderTextField
+
+        init(parent: FirstResponderTextField) {
+            self.parent = parent
+        }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard let textField = notification.object as? NSTextField else { return }
+            parent.text = textField.stringValue
+        }
+
+        func controlTextDidEndEditing(_ notification: Notification) {
+            guard let textField = notification.object as? NSTextField else { return }
+            parent.text = textField.stringValue
+            parent.onCommit()
+        }
+
+        func control(
+            _ control: NSControl,
+            textView: NSTextView,
+            doCommandBy commandSelector: Selector
+        ) -> Bool {
+            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+                parent.onCommit()
+                return true
+            }
+            if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
+                parent.onCommit()
+                return true
+            }
+            return false
         }
     }
 }
