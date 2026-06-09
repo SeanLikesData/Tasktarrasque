@@ -138,7 +138,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func showPopover() {
         guard let panel else { return }
-        NSApp.activate(ignoringOtherApps: true)
+        NSApp.activate()
         applyPinnedBehavior()
         positionPanel()
         panel.orderFrontRegardless()
@@ -178,10 +178,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func updateGlobalMonitor() {
-        // Match Notebloat's pinned scratchpad behavior: clicking another window
-        // should not close the menu bar panel. The status item still toggles the
-        // panel open and closed.
         removeGlobalMonitor()
+        // When the panel is not pinned, a click in any other application
+        // dismisses it, matching standard menu bar popover behavior. When
+        // pinned, the panel stays open and floats above other windows.
+        guard panel?.isVisible == true, !isPinned else { return }
+        monitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+            Task { @MainActor in self?.closePopover() }
+        }
     }
 
     private func removeGlobalMonitor() {
