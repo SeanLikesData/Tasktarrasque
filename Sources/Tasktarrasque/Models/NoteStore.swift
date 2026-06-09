@@ -113,7 +113,6 @@ final class TaskStore: ObservableObject {
     func addTask(title: String = "", to target: TaskTarget) -> TodoTask? {
         guard let weekIndex = selectedWeekIndex else { return nil }
         let task = TodoTask(title: title.trimmingCharacters(in: .whitespacesAndNewlines))
-        objectWillChange.send()
         switch target {
         case .thisWeek:
             weeks[weekIndex].thisWeekTasks.append(task)
@@ -129,7 +128,6 @@ final class TaskStore: ObservableObject {
         guard let weekIndex = selectedWeekIndex,
               let dayIndex = weeks[weekIndex].days.firstIndex(where: { $0.weekday == selectedDay }),
               let taskIndex = weeks[weekIndex].days[dayIndex].tasks.firstIndex(where: { $0.id == taskID }) else { return }
-        objectWillChange.send()
         weeks[weekIndex].days[dayIndex].tasks[taskIndex].isDone.toggle()
         saveNow()
     }
@@ -138,7 +136,6 @@ final class TaskStore: ObservableObject {
         guard let weekIndex = selectedWeekIndex,
               let dayIndex = weeks[weekIndex].days.firstIndex(where: { $0.weekday == selectedDay }),
               let habitIndex = weeks[weekIndex].days[dayIndex].habits.firstIndex(where: { $0.id == habitID }) else { return }
-        objectWillChange.send()
         weeks[weekIndex].days[dayIndex].habits[habitIndex].isDone.toggle()
         saveNow()
     }
@@ -146,14 +143,12 @@ final class TaskStore: ObservableObject {
     func deleteDayTask(_ taskID: UUID) {
         guard let weekIndex = selectedWeekIndex,
               let dayIndex = weeks[weekIndex].days.firstIndex(where: { $0.weekday == selectedDay }) else { return }
-        objectWillChange.send()
         weeks[weekIndex].days[dayIndex].tasks.removeAll { $0.id == taskID }
         saveNow()
     }
 
     func deleteThisWeekTask(_ taskID: UUID) {
         guard let weekIndex = selectedWeekIndex else { return }
-        objectWillChange.send()
         weeks[weekIndex].thisWeekTasks.removeAll { $0.id == taskID }
         saveNow()
     }
@@ -161,7 +156,6 @@ final class TaskStore: ObservableObject {
     func updateThisWeekTaskTitle(_ taskID: UUID, title: String) {
         guard let weekIndex = selectedWeekIndex,
               let taskIndex = weeks[weekIndex].thisWeekTasks.firstIndex(where: { $0.id == taskID }) else { return }
-        objectWillChange.send()
         weeks[weekIndex].thisWeekTasks[taskIndex].title = title
         scheduleSave()
     }
@@ -170,7 +164,6 @@ final class TaskStore: ObservableObject {
         guard let weekIndex = selectedWeekIndex,
               let dayIndex = weeks[weekIndex].days.firstIndex(where: { $0.weekday == selectedDay }),
               let taskIndex = weeks[weekIndex].days[dayIndex].tasks.firstIndex(where: { $0.id == taskID }) else { return }
-        objectWillChange.send()
         weeks[weekIndex].days[dayIndex].tasks[taskIndex].title = title
         scheduleSave()
     }
@@ -179,7 +172,6 @@ final class TaskStore: ObservableObject {
         guard let weekIndex = selectedWeekIndex,
               let sourceIndex = weeks[weekIndex].thisWeekTasks.firstIndex(where: { $0.id == taskID }),
               let dayIndex = weeks[weekIndex].days.firstIndex(where: { $0.weekday == weekday }) else { return }
-        objectWillChange.send()
         let task = weeks[weekIndex].thisWeekTasks.remove(at: sourceIndex)
         weeks[weekIndex].days[dayIndex].tasks.append(task)
         saveNow()
@@ -190,7 +182,6 @@ final class TaskStore: ObservableObject {
               draggedID != targetID,
               let sourceIndex = weeks[weekIndex].thisWeekTasks.firstIndex(where: { $0.id == draggedID }),
               let targetIndex = weeks[weekIndex].thisWeekTasks.firstIndex(where: { $0.id == targetID }) else { return }
-        objectWillChange.send()
         let task = weeks[weekIndex].thisWeekTasks.remove(at: sourceIndex)
         let adjustedTargetIndex = sourceIndex < targetIndex ? targetIndex - 1 : targetIndex
         weeks[weekIndex].thisWeekTasks.insert(task, at: max(0, min(adjustedTargetIndex, weeks[weekIndex].thisWeekTasks.count)))
@@ -203,7 +194,6 @@ final class TaskStore: ObservableObject {
               draggedID != targetID,
               let sourceIndex = weeks[weekIndex].days[dayIndex].tasks.firstIndex(where: { $0.id == draggedID }),
               let targetIndex = weeks[weekIndex].days[dayIndex].tasks.firstIndex(where: { $0.id == targetID }) else { return }
-        objectWillChange.send()
         let task = weeks[weekIndex].days[dayIndex].tasks.remove(at: sourceIndex)
         let adjustedTargetIndex = sourceIndex < targetIndex ? targetIndex - 1 : targetIndex
         weeks[weekIndex].days[dayIndex].tasks.insert(task, at: max(0, min(adjustedTargetIndex, weeks[weekIndex].days[dayIndex].tasks.count)))
@@ -215,7 +205,6 @@ final class TaskStore: ObservableObject {
               let sourceIndex = weeks[weekIndex].thisWeekTasks.firstIndex(where: { $0.id == taskID }) else { return }
         let targetIndex = max(0, min(sourceIndex + offset, weeks[weekIndex].thisWeekTasks.count - 1))
         guard sourceIndex != targetIndex else { return }
-        objectWillChange.send()
         let task = weeks[weekIndex].thisWeekTasks.remove(at: sourceIndex)
         weeks[weekIndex].thisWeekTasks.insert(task, at: targetIndex)
         saveNow()
@@ -227,7 +216,6 @@ final class TaskStore: ObservableObject {
               let sourceIndex = weeks[weekIndex].days[dayIndex].tasks.firstIndex(where: { $0.id == taskID }) else { return }
         let targetIndex = max(0, min(sourceIndex + offset, weeks[weekIndex].days[dayIndex].tasks.count - 1))
         guard sourceIndex != targetIndex else { return }
-        objectWillChange.send()
         let task = weeks[weekIndex].days[dayIndex].tasks.remove(at: sourceIndex)
         weeks[weekIndex].days[dayIndex].tasks.insert(task, at: targetIndex)
         saveNow()
@@ -237,8 +225,9 @@ final class TaskStore: ObservableObject {
         guard let weekIndex = selectedWeekIndex,
               let dayIndex = weeks[weekIndex].days.firstIndex(where: { $0.weekday == selectedDay }),
               let taskIndex = weeks[weekIndex].days[dayIndex].tasks.firstIndex(where: { $0.id == taskID }) else { return }
-        objectWillChange.send()
         var task = weeks[weekIndex].days[dayIndex].tasks.remove(at: taskIndex)
+        // This Week items have no done state, so a task moved back loses its
+        // completion. Day-to-day and This Week-to-day moves preserve it.
         task.isDone = false
         weeks[weekIndex].thisWeekTasks.append(task)
         saveNow()
@@ -247,7 +236,6 @@ final class TaskStore: ObservableObject {
     func pushThisWeekTaskToNextWeek(_ taskID: UUID) {
         guard let weekIndex = selectedWeekIndex,
               let sourceIndex = weeks[weekIndex].thisWeekTasks.firstIndex(where: { $0.id == taskID }) else { return }
-        objectWillChange.send()
         let task = weeks[weekIndex].thisWeekTasks.remove(at: sourceIndex)
         let nextStart = Calendar.current.date(byAdding: .day, value: 7, to: weeks[weekIndex].startDate) ?? Date()
         let nextIndex = ensureWeek(starting: nextStart)
@@ -257,7 +245,6 @@ final class TaskStore: ObservableObject {
 
     func updateBigThree(index: Int, title: String) {
         guard let weekIndex = selectedWeekIndex, index >= 0, index < 3 else { return }
-        objectWillChange.send()
         weeks[weekIndex].bigThree = normalizedBigThree(weeks[weekIndex].bigThree)
         weeks[weekIndex].bigThree[index].title = title
         scheduleSave()
@@ -265,7 +252,6 @@ final class TaskStore: ObservableObject {
 
     func toggleBigThree(index: Int) {
         guard let weekIndex = selectedWeekIndex, index >= 0, index < 3 else { return }
-        objectWillChange.send()
         weeks[weekIndex].bigThree = normalizedBigThree(weeks[weekIndex].bigThree)
         weeks[weekIndex].bigThree[index].isDone.toggle()
         saveNow()

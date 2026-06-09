@@ -38,6 +38,8 @@ struct TemplateSheet: View {
             if renameItem != nil { renameItem = nil } else { renameItem = focusedItem }
             return .handled
         }
+        // Template items have no done state, so swallow "d" to keep it from
+        // bubbling up and toggling anything in the main view behind the sheet.
         .onKeyPress("d") { return .handled }
         .onKeyPress("h") { createItem(in: .habits); return .handled }
         .onKeyPress("w") { createItem(in: .thisWeek); return .handled }

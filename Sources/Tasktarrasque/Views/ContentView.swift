@@ -101,7 +101,7 @@ struct ContentView: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            Picker("Week", selection: Binding(get: { store.selectedWeekID ?? UUID() }, set: { store.selectWeek($0) })) {
+            Picker("Week", selection: Binding(get: { store.selectedWeekID ?? store.weeks.first?.id ?? UUID() }, set: { store.selectWeek($0) })) {
                 ForEach(store.weeks) { week in Text(week.pickerTitle).tag(week.id) }
             }
             .labelsHidden()
