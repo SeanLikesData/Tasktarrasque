@@ -62,6 +62,7 @@ struct SharedTaskCard<FocusValue: Hashable, MenuContent: View>: View {
                     TextField(placeholder, text: $title)
                         .textFieldStyle(.plain)
                         .focused(renameFocus, equals: focusID)
+                        .onAppear { claimRenameFocus() }
                         .onSubmit { renameFocus.wrappedValue = nil }
                 } else {
                     Text(title.isEmpty ? placeholder : title)
@@ -88,6 +89,12 @@ struct SharedTaskCard<FocusValue: Hashable, MenuContent: View>: View {
         .padding(8)
         .background(RoundedRectangle(cornerRadius: 10).fill(isSelected ? TasktarrasqueStyle.activeControlBackground : TasktarrasqueStyle.controlBackground.opacity(0.8)))
         .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(isSelected ? TasktarrasqueStyle.activeControlStroke : TasktarrasqueStyle.controlStroke))
+    }
+
+    private func claimRenameFocus() {
+        DispatchQueue.main.async {
+            renameFocus.wrappedValue = focusID
+        }
     }
 }
 

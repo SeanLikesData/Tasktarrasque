@@ -374,7 +374,10 @@ struct ContentView: View {
             focus = .day(task.id)
         }
         focusedTask = focus
-        DispatchQueue.main.async {
+        focusedRenameField = nil
+        Task { @MainActor in
+            await Task.yield()
+            focusedTask = focus
             focusedRenameField = focus
         }
     }

@@ -219,7 +219,12 @@ struct TemplateSheet: View {
         }
         let focus = TemplateItemFocus(list: list, id: item.id)
         focusedItem = focus
-        DispatchQueue.main.async { renameItem = focus }
+        renameItem = nil
+        Task { @MainActor in
+            await Task.yield()
+            focusedItem = focus
+            renameItem = focus
+        }
     }
 
     private func saveAndClose() {
