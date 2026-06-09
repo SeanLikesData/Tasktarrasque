@@ -11,6 +11,8 @@ struct TemplateSheet: View {
     @FocusState private var focusedItem: TemplateItemFocus?
     @FocusState private var renameItem: TemplateItemFocus?
 
+    private var canUseTemplateShortcuts: Bool { renameItem == nil }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             header
@@ -32,32 +34,55 @@ struct TemplateSheet: View {
         .padding(18)
         .background(TasktarrasqueStyle.panelMaterial)
         .onAppear { draft = store.template }
-        .onMoveCommand(perform: moveFocus)
-        .onDeleteCommand(perform: deleteFocusedItem)
+        .onMoveCommand { direction in
+            guard canUseTemplateShortcuts else { return }
+            moveFocus(direction)
+        }
+        .onDeleteCommand {
+            guard canUseTemplateShortcuts else { return }
+            deleteFocusedItem()
+        }
         .onKeyPress(.return) {
             if renameItem != nil { renameItem = nil } else { renameItem = focusedItem }
             return .handled
         }
         // Template items have no done state, so swallow "d" to keep it from
         // bubbling up and toggling anything in the main view behind the sheet.
-        .onKeyPress("d") { return .handled }
-        .onKeyPress("h") { createItem(in: .habits); return .handled }
-        .onKeyPress("w") { createItem(in: .thisWeek); return .handled }
-        .onKeyPress("n") { createItem(in: .day(selectedDay)); return .handled }
-        .onKeyPress("r") { renameItem = focusedItem; return .handled }
+        .onKeyPress("d") { canUseTemplateShortcuts ? .handled : .ignored }
+        .onKeyPress("h") {
+            guard canUseTemplateShortcuts else { return .ignored }
+            createItem(in: .habits)
+            return .handled
+        }
+        .onKeyPress("w") {
+            guard canUseTemplateShortcuts else { return .ignored }
+            createItem(in: .thisWeek)
+            return .handled
+        }
+        .onKeyPress("n") {
+            guard canUseTemplateShortcuts else { return .ignored }
+            createItem(in: .day(selectedDay))
+            return .handled
+        }
+        .onKeyPress("r") {
+            guard canUseTemplateShortcuts else { return .ignored }
+            renameItem = focusedItem
+            return .handled
+        }
         .onKeyPress(keys: [.upArrow]) { press in
-            guard press.modifiers.contains(.shift) else { return .ignored }
+            guard canUseTemplateShortcuts, press.modifiers.contains(.shift) else { return .ignored }
             moveFocusedItem(offset: -1)
             return .handled
         }
         .onKeyPress(keys: [.downArrow]) { press in
-            guard press.modifiers.contains(.shift) else { return .ignored }
+            guard canUseTemplateShortcuts, press.modifiers.contains(.shift) else { return .ignored }
             moveFocusedItem(offset: 1)
             return .handled
         }
         .onExitCommand {
             if renameItem != nil { renameItem = nil } else { onClose() }
         }
+        .onChange(of: selectedDay) { _, _ in validateFocusAfterDayChange() }
     }
 
     private var header: some View {
@@ -273,6 +298,16 @@ struct TemplateSheet: View {
     }
 
     private func focusOrder() -> [TemplateItemFocus] { leftColumnOrder() + rightColumnOrder() }
+
+    private func validateFocusAfterDayChange() {
+        renameItem = nil
+        guard let focusedItem, !focusOrder().contains(focusedItem) else { return }
+        if case .day = focusedItem.list {
+            self.focusedItem = rightColumnOrder().first ?? focusOrder().first
+        } else {
+            self.focusedItem = focusOrder().first
+        }
+    }
 
     private func leftColumnOrder() -> [TemplateItemFocus] {
         draft.dailyHabits.map { TemplateItemFocus(list: .habits, id: $0.id) } +

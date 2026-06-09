@@ -20,6 +20,7 @@ struct ContentView: View {
     /// short-circuit in that case so shortcuts do not act on the hidden main
     /// view while the user is in a sheet.
     private var isSheetOpen: Bool { showingSettings || showingTemplate || showingShortcuts || weekPendingDeletion != nil }
+    private var canUseMainShortcuts: Bool { !isSheetOpen && focusedRenameField == nil }
 
     var body: some View {
         ZStack {
@@ -38,11 +39,11 @@ struct ContentView: View {
                 )
             }
             .onMoveCommand { direction in
-                guard !isSheetOpen else { return }
+                guard canUseMainShortcuts else { return }
                 moveFocus(direction)
             }
             .onDeleteCommand {
-                guard !isSheetOpen else { return }
+                guard canUseMainShortcuts else { return }
                 deleteFocusedTask()
             }
             .onKeyPress(.return) {
@@ -55,7 +56,7 @@ struct ContentView: View {
                 return .handled
             }
             .onKeyPress("d") {
-                guard !isSheetOpen else { return .ignored }
+                guard canUseMainShortcuts else { return .ignored }
                 toggleFocusedTask()
                 return .handled
             }
@@ -73,42 +74,42 @@ struct ContentView: View {
                 }
             }
             .onKeyPress("n") {
-                guard !isSheetOpen else { return .ignored }
+                guard canUseMainShortcuts else { return .ignored }
                 createTask(in: .day(store.selectedDay))
                 return .handled
             }
             .onKeyPress("w") {
-                guard !isSheetOpen else { return .ignored }
+                guard canUseMainShortcuts else { return .ignored }
                 createTask(in: .thisWeek)
                 return .handled
             }
             .onKeyPress("?") {
-                guard !isSheetOpen else { return .ignored }
+                guard canUseMainShortcuts else { return .ignored }
                 showingShortcuts = true
                 return .handled
             }
             .onKeyPress(keys: [.upArrow]) { press in
-                guard !isSheetOpen, press.modifiers.contains(.shift) else { return .ignored }
+                guard canUseMainShortcuts, press.modifiers.contains(.shift) else { return .ignored }
                 moveFocusedTaskByKeyboard(offset: -1)
                 return .handled
             }
             .onKeyPress(keys: [.downArrow]) { press in
-                guard !isSheetOpen, press.modifiers.contains(.shift) else { return .ignored }
+                guard canUseMainShortcuts, press.modifiers.contains(.shift) else { return .ignored }
                 moveFocusedTaskByKeyboard(offset: 1)
                 return .handled
             }
             .onKeyPress(keys: [.leftArrow]) { press in
-                guard !isSheetOpen, press.modifiers.contains(.shift) else { return .ignored }
+                guard canUseMainShortcuts, press.modifiers.contains(.shift) else { return .ignored }
                 moveFocusedTaskSideways(toDay: false)
                 return .handled
             }
             .onKeyPress(keys: [.rightArrow]) { press in
-                guard !isSheetOpen, press.modifiers.contains(.shift) else { return .ignored }
+                guard canUseMainShortcuts, press.modifiers.contains(.shift) else { return .ignored }
                 moveFocusedTaskSideways(toDay: true)
                 return .handled
             }
             .onKeyPress("r") {
-                guard !isSheetOpen else { return .ignored }
+                guard canUseMainShortcuts else { return .ignored }
                 beginRenamingFocusedTask()
                 return .handled
             }
@@ -126,6 +127,8 @@ struct ContentView: View {
             weekPendingDeletion = nil
             focusedRenameField = nil
         }
+        .onChange(of: store.selectedWeekID) { _, _ in validateFocusAfterSelectionChange() }
+        .onChange(of: store.selectedDay) { _, _ in validateFocusAfterSelectionChange() }
         .frame(width: popoverSize.width, height: popoverSize.height)
         .clipShape(RoundedRectangle(cornerRadius: TasktarrasqueStyle.panelCornerRadius, style: .continuous))
         .overlay(TasktarrasqueStyle.panelBorder)
@@ -511,6 +514,14 @@ struct ContentView: View {
         leftColumnFocusOrder() + rightColumnFocusOrder()
     }
 
+    private func validateFocusAfterSelectionChange() {
+        focusedRenameField = nil
+        guard let focusedTask else { return }
+        if !focusOrder().contains(focusedTask) {
+            self.focusedTask = focusOrder().first
+        }
+    }
+
     private func leftColumnFocusOrder() -> [FocusedTask] {
         let bigThree = [0, 1, 2].map { FocusedTask.bigThree($0) }
         let thisWeek = (store.selectedWeek?.thisWeekTasks ?? []).map { FocusedTask.thisWeek($0.id) }
@@ -614,4 +625,3 @@ private struct DayTaskDropDelegate: DropDelegate {
         return true
     }
 }
-
