@@ -46,6 +46,7 @@ struct SharedTaskCard<FocusValue: Hashable, MenuContent: View>: View {
             }
             .buttonStyle(.plain)
             .disabled(onToggle == nil)
+            .accessibilityLabel(isChecked ? "Mark not done" : "Mark done")
 
             Group {
                 if renameFocus.wrappedValue == focusID {
@@ -72,6 +73,7 @@ struct SharedTaskCard<FocusValue: Hashable, MenuContent: View>: View {
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .frame(width: 28)
+            .accessibilityLabel("Task actions")
         }
         .font(.system(size: 13))
         .padding(8)

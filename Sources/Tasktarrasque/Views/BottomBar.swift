@@ -24,6 +24,7 @@ struct BottomBar: View {
             }
             .buttonStyle(.plain)
             .help("Settings")
+            .accessibilityLabel("Settings")
             .keyboardShortcut(",", modifiers: .command)
         }
         .padding(.horizontal, 10)

@@ -135,7 +135,10 @@ struct ContentView: View {
                     .padding(.vertical, 7)
                     .background(RoundedRectangle(cornerRadius: 9).fill(store.selectedDay == day ? TasktarrasqueStyle.activeControlBackground : TasktarrasqueStyle.controlBackground.opacity(0.55)))
                     .overlay(RoundedRectangle(cornerRadius: 9).stroke(store.selectedDay == day ? TasktarrasqueStyle.activeControlStroke : TasktarrasqueStyle.controlStroke))
-                }.buttonStyle(.plain)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(day.rawValue), \(plan?.completedCount ?? 0) done")
+                .accessibilityAddTraits(store.selectedDay == day ? [.isSelected, .isButton] : .isButton)
             }
         }.padding(10)
     }
@@ -266,6 +269,8 @@ struct ContentView: View {
                         .background(RoundedRectangle(cornerRadius: 8).fill(TasktarrasqueStyle.controlBackground.opacity(0.8)))
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel(habit.title)
+                    .accessibilityValue(habit.isDone ? "done" : "not done")
                     .focusable()
                     .focused($focusedTask, equals: .habit(habit.id))
                 }
@@ -283,6 +288,7 @@ struct ContentView: View {
                         Image(systemName: task?.isDone == true ? "checkmark.circle.fill" : "circle")
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel(task?.isDone == true ? "Mark not done" : "Mark done")
                     Group {
                         if focusedRenameField == .bigThree(index) {
                             TextField("Big task \(index + 1)", text: Binding(get: { store.selectedWeek?.bigThree[safe: index]?.title ?? "" }, set: { store.updateBigThree(index: index, title: $0) }))
