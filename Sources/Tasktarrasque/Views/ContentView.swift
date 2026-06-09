@@ -35,7 +35,7 @@ struct ContentView: View {
                 if focusedRenameField != nil {
                     focusedRenameField = nil
                 } else {
-                    focusedRenameField = focusedTask
+                    beginRenamingFocusedTask()
                 }
                 return .handled
             }
@@ -87,7 +87,7 @@ struct ContentView: View {
                 return .handled
             }
             .onKeyPress("r") {
-                focusedRenameField = focusedTask
+                beginRenamingFocusedTask()
                 return .handled
             }
             if showingSettings { SettingsSheet(onClose: { showingSettings = false }).zIndex(2) }
@@ -237,6 +237,7 @@ struct ContentView: View {
                             delegate: DayTaskDropDelegate(
                                 targetTaskID: task.id,
                                 draggedTaskID: $draggedDayTaskID,
+                                draggedThisWeekTaskID: $draggedThisWeekTaskID,
                                 store: store
                             )
                         )
@@ -409,6 +410,19 @@ struct ContentView: View {
         self.focusedTask = focusOrder().first
     }
 
+    /// Enters rename mode only for items that have an editable text field.
+    /// Habits are toggle-only and have no rename field, so renaming them would
+    /// leave an invisible, dead rename state.
+    private func beginRenamingFocusedTask() {
+        guard let focusedTask else { return }
+        switch focusedTask {
+        case .thisWeek, .day, .bigThree:
+            focusedRenameField = focusedTask
+        case .habit:
+            return
+        }
+    }
+
     private func toggleFocusedTask() {
         guard let focusedTask else { return }
         switch focusedTask {
@@ -497,6 +511,7 @@ private struct ThisWeekTaskDropDelegate: DropDelegate {
 private struct DayTaskDropDelegate: DropDelegate {
     let targetTaskID: UUID
     @Binding var draggedTaskID: UUID?
+    @Binding var draggedThisWeekTaskID: UUID?
     let store: TaskStore
 
     func dropEntered(info: DropInfo) {
@@ -507,6 +522,14 @@ private struct DayTaskDropDelegate: DropDelegate {
     func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
 
     func performDrop(info: DropInfo) -> Bool {
+        // A This Week task dropped onto a day task moves into the day and lands
+        // at the dropped position rather than silently doing nothing.
+        if let thisWeekID = draggedThisWeekTaskID {
+            store.moveThisWeekTask(thisWeekID, to: store.selectedDay)
+            store.reorderDayTask(thisWeekID, before: targetTaskID)
+            draggedThisWeekTaskID = nil
+            return true
+        }
         draggedTaskID = nil
         return true
     }
