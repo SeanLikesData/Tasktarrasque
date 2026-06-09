@@ -7,11 +7,8 @@ struct TemplateSheet: View {
 
     @State private var draft = WeeklyTemplate()
     @State private var selectedDay: Weekday = .monday
-    @State private var draggedItem: TemplateItemFocus?
-    @State private var renameItem: TemplateItemFocus?
-    @FocusState private var focusedItem: TemplateItemFocus?
-
-    private var canUseTemplateShortcuts: Bool { renameItem == nil }
+    @State private var draggedItem: TemplateItemAddress?
+    @StateObject private var interaction = TemplateInteractionModel()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -34,56 +31,65 @@ struct TemplateSheet: View {
         .padding(18)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(TasktarrasqueStyle.panelMaterial)
-        .onAppear { draft = store.template }
+        .onAppear {
+            draft = store.template
+            interaction.validateVisibleItems(focusOrder())
+        }
         .onMoveCommand { direction in
-            guard canUseTemplateShortcuts else { return }
-            moveFocus(direction)
+            guard interaction.canUseShortcuts else { return }
+            moveSelection(direction)
         }
         .onDeleteCommand {
-            guard canUseTemplateShortcuts else { return }
-            deleteFocusedItem()
+            guard interaction.canUseShortcuts else { return }
+            deleteSelectedItem()
         }
         .onKeyPress(.return) {
-            if renameItem != nil { renameItem = nil } else { renameItem = focusedItem }
+            if interaction.editSession != nil {
+                commitTemplateEdit()
+            } else {
+                beginEditingSelectedItem()
+            }
             return .handled
         }
-        // Template items have no done state, so swallow "d" to keep it from
-        // bubbling up and toggling anything in the main view behind the sheet.
-        .onKeyPress("d") { canUseTemplateShortcuts ? .handled : .ignored }
+        .onKeyPress("d") { interaction.canUseShortcuts ? .handled : .ignored }
         .onKeyPress("h") {
-            guard canUseTemplateShortcuts else { return .ignored }
+            guard interaction.canUseShortcuts else { return .ignored }
             createItem(in: .habits)
             return .handled
         }
         .onKeyPress("w") {
-            guard canUseTemplateShortcuts else { return .ignored }
+            guard interaction.canUseShortcuts else { return .ignored }
             createItem(in: .thisWeek)
             return .handled
         }
         .onKeyPress("n") {
-            guard canUseTemplateShortcuts else { return .ignored }
+            guard interaction.canUseShortcuts else { return .ignored }
             createItem(in: .day(selectedDay))
             return .handled
         }
         .onKeyPress("r") {
-            guard canUseTemplateShortcuts else { return .ignored }
-            renameItem = focusedItem
+            guard interaction.canUseShortcuts else { return .ignored }
+            beginEditingSelectedItem()
             return .handled
         }
         .onKeyPress(keys: [.upArrow]) { press in
-            guard canUseTemplateShortcuts, press.modifiers.contains(.shift) else { return .ignored }
-            moveFocusedItem(offset: -1)
+            guard interaction.canUseShortcuts, press.modifiers.contains(.shift) else { return .ignored }
+            moveSelectedItem(offset: -1)
             return .handled
         }
         .onKeyPress(keys: [.downArrow]) { press in
-            guard canUseTemplateShortcuts, press.modifiers.contains(.shift) else { return .ignored }
-            moveFocusedItem(offset: 1)
+            guard interaction.canUseShortcuts, press.modifiers.contains(.shift) else { return .ignored }
+            moveSelectedItem(offset: 1)
             return .handled
         }
         .onExitCommand {
-            if renameItem != nil { renameItem = nil } else { onClose() }
+            if interaction.editSession != nil {
+                interaction.cancelEdit()
+            } else {
+                onClose()
+            }
         }
-        .onChange(of: selectedDay) { _, _ in validateFocusAfterDayChange() }
+        .onChange(of: selectedDay) { _, _ in interaction.validateVisibleItems(focusOrder()) }
     }
 
     private var header: some View {
@@ -159,38 +165,70 @@ struct TemplateSheet: View {
     private func templateList(_ tasks: Binding<[TodoTask]>, list: TemplateListKind) -> some View {
         VStack(spacing: 8) {
             ForEach(tasks.wrappedValue) { task in
-                let focus = TemplateItemFocus(list: list, id: task.id)
-                SharedTaskCard(
-                    title: titleBinding(for: task.id, in: tasks),
-                    placeholder: placeholder(for: list),
-                    isSelected: focusedItem == focus,
-                    isEditing: renameItem == focus,
-                    isChecked: false,
-                    checkIcon: list == .habits ? "checkmark.square.fill" : "checkmark.circle.fill",
-                    uncheckedIcon: list == .habits ? "square" : "circle",
-                    onToggle: nil,
-                    onSelect: { focusedItem = focus },
-                    onBeginEdit: {
-                        focusedItem = focus
-                        renameItem = focus
-                    },
-                    onCommitEdit: { renameItem = nil },
-                    onCancelEdit: { renameItem = nil }
-                ) {
-                    Button(role: .destructive) { remove(task.id, from: tasks) } label: { Text("Delete") }
+                let address = address(for: task.id, in: list)
+                templateCard(address: address, title: task.title, placeholder: placeholder(for: list), uncheckedIcon: uncheckedIcon(for: list)) {
+                    Button(role: .destructive) { remove(address) } label: { Text("Delete") }
                 }
-                .focusable()
-                .focused($focusedItem, equals: focus)
-                .onTapGesture { focusedItem = focus }
                 .onDrag {
-                    draggedItem = focus
+                    draggedItem = address
                     return NSItemProvider(object: task.id.uuidString as NSString)
                 }
-                .onDrop(of: [UTType.text.identifier], delegate: TemplateTaskDropDelegate(target: focus, dragged: $draggedItem, tasks: tasks))
+                .onDrop(
+                    of: [UTType.text.identifier],
+                    delegate: TemplateTaskDropDelegate(target: address, dragged: $draggedItem, tasks: tasks)
+                )
+            }
+
+            if let pending = pendingNewAddress(for: list) {
+                templateCard(address: pending, title: "", placeholder: placeholder(for: list), uncheckedIcon: uncheckedIcon(for: list)) {
+                    Button(role: .destructive) { interaction.cancelEdit() } label: { Text("Cancel") }
+                }
             }
         }
         .padding(.horizontal, 1)
         .padding(.vertical, 1)
+    }
+
+    private func templateCard<MenuContent: View>(
+        address: TemplateItemAddress,
+        title: String,
+        placeholder: String,
+        uncheckedIcon: String,
+        @ViewBuilder menu: @escaping () -> MenuContent
+    ) -> some View {
+        SharedTaskCard(
+            title: editTitleBinding(for: address, currentTitle: title),
+            placeholder: placeholder,
+            isSelected: interaction.selectedItem == address,
+            isEditing: interaction.editSession?.target == address,
+            isChecked: false,
+            checkIcon: uncheckedIcon,
+            uncheckedIcon: uncheckedIcon,
+            onToggle: nil,
+            onSelect: { interaction.select(address) },
+            onBeginEdit: { beginEditing(address, currentTitle: title) },
+            onCommitEdit: { commitTemplateEdit() },
+            onCancelEdit: { interaction.cancelEdit() },
+            menu: menu
+        )
+    }
+
+    private func editTitleBinding(for address: TemplateItemAddress, currentTitle: String) -> Binding<String> {
+        Binding(
+            get: {
+                if interaction.editSession?.target == address {
+                    return interaction.editSession?.draftTitle ?? currentTitle
+                }
+                return currentTitle
+            },
+            set: { newTitle in
+                if interaction.editSession?.target == address {
+                    interaction.updateDraftTitle(newTitle)
+                } else {
+                    updateTitle(for: address, title: newTitle)
+                }
+            }
+        )
     }
 
     private func placeholder(for list: TemplateListKind) -> String {
@@ -201,20 +239,89 @@ struct TemplateSheet: View {
         }
     }
 
-    private func titleBinding(for id: UUID, in tasks: Binding<[TodoTask]>) -> Binding<String> {
-        Binding(
-            get: { tasks.wrappedValue.first(where: { $0.id == id })?.title ?? "" },
-            set: { value in
-                guard let index = tasks.wrappedValue.firstIndex(where: { $0.id == id }) else { return }
-                tasks.wrappedValue[index].title = value
-            }
-        )
+    private func uncheckedIcon(for list: TemplateListKind) -> String {
+        list == .habits ? "square" : "circle"
+    }
+
+    private func address(for id: UUID, in list: TemplateListKind) -> TemplateItemAddress {
+        switch list {
+        case .habits:
+            .habit(id)
+        case .thisWeek:
+            .thisWeek(id)
+        case .day(let day):
+            .day(day, id)
+        }
+    }
+
+    private func creationTarget(for list: TemplateListKind) -> TemplateCreationTarget {
+        switch list {
+        case .habits:
+            .habit
+        case .thisWeek:
+            .thisWeek
+        case .day(let day):
+            .day(day)
+        }
     }
 
     private func createItem(in list: TemplateListKind) {
-        let item = TodoTask(title: "")
-        switch list {
-        case .habits:
+        interaction.beginNewItem(in: creationTarget(for: list))
+    }
+
+    private func beginEditing(_ address: TemplateItemAddress, currentTitle: String) {
+        interaction.beginEdit(address, currentTitle: title(for: address) ?? currentTitle)
+    }
+
+    private func beginEditingSelectedItem() {
+        guard let selectedItem = interaction.selectedItem,
+              let title = title(for: selectedItem) else { return }
+        interaction.beginEdit(selectedItem, currentTitle: title)
+    }
+
+    private func pendingNewAddress(for list: TemplateListKind) -> TemplateItemAddress? {
+        guard let editSession = interaction.editSession else { return nil }
+        switch (editSession.mode, list) {
+        case (.new(.habit), .habits),
+             (.new(.thisWeek), .thisWeek):
+            return editSession.target
+        case (.new(.day(let pendingDay)), .day(let listDay)) where pendingDay == listDay:
+            return editSession.target
+        default:
+            return nil
+        }
+    }
+
+    private func title(for address: TemplateItemAddress) -> String? {
+        switch address {
+        case .habit(let id):
+            draft.dailyHabits.first { $0.id == id }?.title
+        case .thisWeek(let id):
+            draft.thisWeekTasks.first { $0.id == id }?.title
+        case .day(let weekday, let id):
+            draft.days.first { $0.weekday == weekday }?.tasks.first { $0.id == id }?.title
+        }
+    }
+
+    private func updateTitle(for address: TemplateItemAddress, title: String) {
+        switch address {
+        case .habit(let id):
+            guard let index = draft.dailyHabits.firstIndex(where: { $0.id == id }) else { return }
+            draft.dailyHabits[index].title = title
+        case .thisWeek(let id):
+            guard let index = draft.thisWeekTasks.firstIndex(where: { $0.id == id }) else { return }
+            draft.thisWeekTasks[index].title = title
+        case .day(let weekday, let id):
+            guard let dayIndex = draft.days.firstIndex(where: { $0.weekday == weekday }),
+                  let taskIndex = draft.days[dayIndex].tasks.firstIndex(where: { $0.id == id }) else { return }
+            draft.days[dayIndex].tasks[taskIndex].title = title
+        }
+    }
+
+    private func appendItem(id: UUID, title: String, to target: TemplateCreationTarget) {
+        let item = TodoTask(id: id, title: title)
+        switch target {
+        case .habit:
             draft.dailyHabits.append(item)
         case .thisWeek:
             draft.thisWeekTasks.append(item)
@@ -222,83 +329,92 @@ struct TemplateSheet: View {
             guard let index = draft.days.firstIndex(where: { $0.weekday == day }) else { return }
             draft.days[index].tasks.append(item)
         }
-        let focus = TemplateItemFocus(list: list, id: item.id)
-        focusedItem = focus
-        renameItem = nil
-        Task { @MainActor in
-            await Task.yield()
-            focusedItem = focus
-            renameItem = focus
+    }
+
+    private func commitTemplateEdit() {
+        guard let editSession = interaction.editSession else { return }
+        let trimmedTitle = editSession.draftTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        switch editSession.mode {
+        case .existing:
+            updateTitle(for: editSession.target, title: editSession.draftTitle)
+        case .new(let target):
+            if !trimmedTitle.isEmpty, let id = editSession.target.itemID {
+                appendItem(id: id, title: trimmedTitle, to: target)
+            }
         }
+
+        interaction.selectedItem = editSession.target
+        interaction.editSession = nil
+        interaction.validateVisibleItems(focusOrder())
     }
 
-    private func saveAndClose() {
-        store.updateTemplate(draft)
-        onClose()
+    private func remove(_ address: TemplateItemAddress) {
+        switch address {
+        case .habit(let id):
+            draft.dailyHabits.removeAll { $0.id == id }
+        case .thisWeek(let id):
+            draft.thisWeekTasks.removeAll { $0.id == id }
+        case .day(let weekday, let id):
+            guard let dayIndex = draft.days.firstIndex(where: { $0.weekday == weekday }) else { return }
+            draft.days[dayIndex].tasks.removeAll { $0.id == id }
+        }
+        interaction.validateVisibleItems(focusOrder())
     }
 
-    private func moveFocus(_ direction: MoveCommandDirection) {
-        guard let focusedItem else {
-            self.focusedItem = focusOrder().first
+    private func deleteSelectedItem() {
+        guard let selectedItem = interaction.selectedItem else { return }
+        if interaction.editSession?.target == selectedItem {
+            interaction.cancelEdit()
             return
         }
+        remove(selectedItem)
+    }
+
+    private func moveSelection(_ direction: MoveCommandDirection) {
+        guard let selectedItem = interaction.selectedItem else {
+            interaction.selectedItem = focusOrder().first
+            return
+        }
+
         switch direction {
-        case .up: moveFocusVertically(from: focusedItem, offset: -1)
-        case .down: moveFocusVertically(from: focusedItem, offset: 1)
-        case .left: moveFocusHorizontally(toRightColumn: false)
-        case .right: moveFocusHorizontally(toRightColumn: true)
-        @unknown default: break
+        case .up:
+            moveSelectionVertically(from: selectedItem, offset: -1)
+        case .down:
+            moveSelectionVertically(from: selectedItem, offset: 1)
+        case .left:
+            moveSelectionHorizontally(toRightColumn: false)
+        case .right:
+            moveSelectionHorizontally(toRightColumn: true)
+        @unknown default:
+            break
         }
     }
 
-    private func moveFocusVertically(from current: TemplateItemFocus, offset: Int) {
+    private func moveSelectionVertically(from current: TemplateItemAddress, offset: Int) {
         let items = column(containing: current)
         guard let index = items.firstIndex(of: current), !items.isEmpty else { return }
-        focusedItem = items[max(0, min(index + offset, items.count - 1))]
+        interaction.selectedItem = items[max(0, min(index + offset, items.count - 1))]
     }
 
-    private func moveFocusHorizontally(toRightColumn: Bool) {
+    private func moveSelectionHorizontally(toRightColumn: Bool) {
         let target = toRightColumn ? rightColumnOrder() : leftColumnOrder()
         guard !target.isEmpty else { return }
-        focusedItem = target.first
+        interaction.selectedItem = target.first
     }
 
-    private func deleteFocusedItem() {
-        guard let focusedItem else { return }
-        let nextFocus = neighborFocus(of: focusedItem)
-        switch focusedItem.list {
-        case .habits: remove(focusedItem.id, from: $draft.dailyHabits)
-        case .thisWeek: remove(focusedItem.id, from: $draft.thisWeekTasks)
-        case .day(let day):
+    private func moveSelectedItem(offset: Int) {
+        guard let selectedItem = interaction.selectedItem else { return }
+        switch selectedItem {
+        case .habit(let id):
+            move(id, offset: offset, in: &draft.dailyHabits)
+        case .thisWeek(let id):
+            move(id, offset: offset, in: &draft.thisWeekTasks)
+        case .day(let day, let id):
             guard let index = draft.days.firstIndex(where: { $0.weekday == day }) else { return }
-            remove(focusedItem.id, from: $draft.days[index].tasks)
+            move(id, offset: offset, in: &draft.days[index].tasks)
         }
-        self.focusedItem = nextFocus
-    }
-
-    /// The item to focus after `item` is deleted: the next item in the same
-    /// column, or the previous one if it was last.
-    private func neighborFocus(of item: TemplateItemFocus) -> TemplateItemFocus? {
-        let items = column(containing: item)
-        guard let index = items.firstIndex(of: item) else { return nil }
-        if index + 1 < items.count { return items[index + 1] }
-        if index - 1 >= 0 { return items[index - 1] }
-        return nil
-    }
-
-    private func moveFocusedItem(offset: Int) {
-        guard let focusedItem else { return }
-        switch focusedItem.list {
-        case .habits: move(focusedItem.id, offset: offset, in: &draft.dailyHabits)
-        case .thisWeek: move(focusedItem.id, offset: offset, in: &draft.thisWeekTasks)
-        case .day(let day):
-            guard let index = draft.days.firstIndex(where: { $0.weekday == day }) else { return }
-            move(focusedItem.id, offset: offset, in: &draft.days[index].tasks)
-        }
-    }
-
-    private func remove(_ id: UUID, from tasks: Binding<[TodoTask]>) {
-        tasks.wrappedValue.removeAll { $0.id == id }
+        interaction.validateVisibleItems(focusOrder())
     }
 
     private func move(_ id: UUID, offset: Int, in tasks: inout [TodoTask]) {
@@ -309,33 +425,44 @@ struct TemplateSheet: View {
         tasks.insert(item, at: target)
     }
 
-    private func focusOrder() -> [TemplateItemFocus] { leftColumnOrder() + rightColumnOrder() }
+    private func focusOrder() -> [TemplateItemAddress] {
+        leftColumnOrder() + rightColumnOrder()
+    }
 
-    private func validateFocusAfterDayChange() {
-        renameItem = nil
-        guard let focusedItem, !focusOrder().contains(focusedItem) else { return }
-        if case .day = focusedItem.list {
-            self.focusedItem = rightColumnOrder().first ?? focusOrder().first
-        } else {
-            self.focusedItem = focusOrder().first
+    private func leftColumnOrder() -> [TemplateItemAddress] {
+        var items = draft.dailyHabits.map { TemplateItemAddress.habit($0.id) } +
+            draft.thisWeekTasks.map { TemplateItemAddress.thisWeek($0.id) }
+        if let pendingHabit = pendingNewAddress(for: .habits) {
+            items.append(pendingHabit)
         }
+        if let pendingThisWeek = pendingNewAddress(for: .thisWeek) {
+            items.append(pendingThisWeek)
+        }
+        return items
     }
 
-    private func leftColumnOrder() -> [TemplateItemFocus] {
-        draft.dailyHabits.map { TemplateItemFocus(list: .habits, id: $0.id) } +
-        draft.thisWeekTasks.map { TemplateItemFocus(list: .thisWeek, id: $0.id) }
-    }
-
-    private func rightColumnOrder() -> [TemplateItemFocus] {
+    private func rightColumnOrder() -> [TemplateItemAddress] {
         guard let index = draft.days.firstIndex(where: { $0.weekday == selectedDay }) else { return [] }
-        return draft.days[index].tasks.map { TemplateItemFocus(list: .day(selectedDay), id: $0.id) }
+        var items = draft.days[index].tasks.map { TemplateItemAddress.day(selectedDay, $0.id) }
+        if let pending = pendingNewAddress(for: .day(selectedDay)) {
+            items.append(pending)
+        }
+        return items
     }
 
-    private func column(containing item: TemplateItemFocus) -> [TemplateItemFocus] {
-        switch item.list {
-        case .habits, .thisWeek: leftColumnOrder()
-        case .day: rightColumnOrder()
+    private func column(containing item: TemplateItemAddress) -> [TemplateItemAddress] {
+        switch item {
+        case .habit, .thisWeek:
+            leftColumnOrder()
+        case .day:
+            rightColumnOrder()
         }
+    }
+
+    private func saveAndClose() {
+        commitTemplateEdit()
+        store.updateTemplate(draft)
+        onClose()
     }
 }
 
@@ -345,25 +472,49 @@ enum TemplateListKind: Hashable {
     case day(Weekday)
 }
 
-struct TemplateItemFocus: Hashable {
-    let list: TemplateListKind
-    let id: UUID
-}
-
 private struct TemplateTaskDropDelegate: DropDelegate {
-    let target: TemplateItemFocus
-    @Binding var dragged: TemplateItemFocus?
+    let target: TemplateItemAddress
+    @Binding var dragged: TemplateItemAddress?
     var tasks: Binding<[TodoTask]>
 
     func dropEntered(info: DropInfo) {
-        guard let dragged, dragged.list == target.list, dragged.id != target.id,
-              let source = tasks.wrappedValue.firstIndex(where: { $0.id == dragged.id }),
-              let destination = tasks.wrappedValue.firstIndex(where: { $0.id == target.id }) else { return }
+        guard let dragged,
+              dragged.isSameTemplateList(as: target),
+              dragged != target,
+              let source = tasks.wrappedValue.firstIndex(where: { $0.id == dragged.itemID }),
+              let destination = tasks.wrappedValue.firstIndex(where: { $0.id == target.itemID }) else { return }
         let item = tasks.wrappedValue.remove(at: source)
         let adjusted = source < destination ? destination - 1 : destination
         tasks.wrappedValue.insert(item, at: max(0, min(adjusted, tasks.wrappedValue.count)))
     }
 
     func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
-    func performDrop(info: DropInfo) -> Bool { dragged = nil; return true }
+
+    func performDrop(info: DropInfo) -> Bool {
+        dragged = nil
+        return true
+    }
+}
+
+private extension TemplateItemAddress {
+    var itemID: UUID? {
+        switch self {
+        case .habit(let id),
+             .thisWeek(let id),
+             .day(_, let id):
+            id
+        }
+    }
+
+    func isSameTemplateList(as other: TemplateItemAddress) -> Bool {
+        switch (self, other) {
+        case (.habit, .habit),
+             (.thisWeek, .thisWeek):
+            true
+        case (.day(let lhsDay, _), .day(let rhsDay, _)):
+            lhsDay == rhsDay
+        default:
+            false
+        }
+    }
 }

@@ -160,6 +160,103 @@ final class TaskInteractionModel: ObservableObject {
     }
 }
 
+enum TemplateItemAddress: Hashable {
+    case habit(UUID)
+    case thisWeek(UUID)
+    case day(Weekday, UUID)
+
+    var isDayItem: Bool {
+        if case .day = self { return true }
+        return false
+    }
+}
+
+enum TemplateCreationTarget: Hashable {
+    case habit
+    case thisWeek
+    case day(Weekday)
+
+    func address(taskID: UUID) -> TemplateItemAddress {
+        switch self {
+        case .habit:
+            .habit(taskID)
+        case .thisWeek:
+            .thisWeek(taskID)
+        case .day(let weekday):
+            .day(weekday, taskID)
+        }
+    }
+}
+
+struct TemplateEditSession: Equatable {
+    enum Mode: Equatable {
+        case existing
+        case new(TemplateCreationTarget)
+    }
+
+    var target: TemplateItemAddress
+    var originalTitle: String
+    var draftTitle: String
+    var mode: Mode
+}
+
+@MainActor
+final class TemplateInteractionModel: ObservableObject {
+    @Published var selectedItem: TemplateItemAddress?
+    @Published var editSession: TemplateEditSession?
+
+    var canUseShortcuts: Bool { editSession == nil }
+
+    func select(_ item: TemplateItemAddress) {
+        selectedItem = item
+    }
+
+    func beginEdit(_ item: TemplateItemAddress, currentTitle: String) {
+        selectedItem = item
+        editSession = TemplateEditSession(
+            target: item,
+            originalTitle: currentTitle,
+            draftTitle: currentTitle,
+            mode: .existing
+        )
+    }
+
+    func beginNewItem(in target: TemplateCreationTarget) {
+        let taskID = UUID()
+        let address = target.address(taskID: taskID)
+        selectedItem = address
+        editSession = TemplateEditSession(
+            target: address,
+            originalTitle: "",
+            draftTitle: "",
+            mode: .new(target)
+        )
+    }
+
+    func updateDraftTitle(_ title: String) {
+        editSession?.draftTitle = title
+    }
+
+    func cancelEdit() {
+        editSession = nil
+    }
+
+    func validateVisibleItems(_ visibleItems: [TemplateItemAddress]) {
+        if let editSession, !visibleItems.contains(editSession.target) {
+            self.editSession = nil
+        }
+
+        guard let selectedItem else {
+            self.selectedItem = visibleItems.first
+            return
+        }
+
+        if !visibleItems.contains(selectedItem) {
+            self.selectedItem = visibleItems.first
+        }
+    }
+}
+
 extension TaskItemAddress {
     fileprivate var taskID: UUID? {
         switch self {
