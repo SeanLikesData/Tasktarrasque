@@ -33,7 +33,7 @@ struct TemplateSheet: View {
         .background(TasktarrasqueStyle.panelMaterial)
         .onAppear {
             draft = store.template
-            interaction.validateVisibleItems(focusOrder())
+            interaction.validateVisibleItems(selectionOrder())
         }
         .onMoveCommand { direction in
             guard interaction.canUseShortcuts else { return }
@@ -89,7 +89,7 @@ struct TemplateSheet: View {
                 onClose()
             }
         }
-        .onChange(of: selectedDay) { _, _ in interaction.validateVisibleItems(focusOrder()) }
+        .onChange(of: selectedDay) { _, _ in interaction.validateVisibleItems(selectionOrder()) }
     }
 
     private var header: some View {
@@ -346,7 +346,7 @@ struct TemplateSheet: View {
 
         interaction.selectedItem = editSession.target
         interaction.editSession = nil
-        interaction.validateVisibleItems(focusOrder())
+        interaction.validateVisibleItems(selectionOrder())
     }
 
     private func remove(_ address: TemplateItemAddress) {
@@ -359,7 +359,7 @@ struct TemplateSheet: View {
             guard let dayIndex = draft.days.firstIndex(where: { $0.weekday == weekday }) else { return }
             draft.days[dayIndex].tasks.removeAll { $0.id == id }
         }
-        interaction.validateVisibleItems(focusOrder())
+        interaction.validateVisibleItems(selectionOrder())
     }
 
     private func deleteSelectedItem() {
@@ -373,7 +373,7 @@ struct TemplateSheet: View {
 
     private func moveSelection(_ direction: MoveCommandDirection) {
         guard let selectedItem = interaction.selectedItem else {
-            interaction.selectedItem = focusOrder().first
+            interaction.selectedItem = selectionOrder().first
             return
         }
 
@@ -414,7 +414,7 @@ struct TemplateSheet: View {
             guard let index = draft.days.firstIndex(where: { $0.weekday == day }) else { return }
             move(id, offset: offset, in: &draft.days[index].tasks)
         }
-        interaction.validateVisibleItems(focusOrder())
+        interaction.validateVisibleItems(selectionOrder())
     }
 
     private func move(_ id: UUID, offset: Int, in tasks: inout [TodoTask]) {
@@ -425,7 +425,7 @@ struct TemplateSheet: View {
         tasks.insert(item, at: target)
     }
 
-    private func focusOrder() -> [TemplateItemAddress] {
+    private func selectionOrder() -> [TemplateItemAddress] {
         leftColumnOrder() + rightColumnOrder()
     }
 

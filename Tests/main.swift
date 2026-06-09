@@ -82,6 +82,36 @@ func runAll() -> Int {
         r.expectEqual(monday?.tasks.count, 1, "one Monday task")
     }
 
+    r.test("pending new task is not saved when committed blank") {
+        let (store, _) = makeTempStore()
+        let interaction = TaskInteractionModel()
+        let weekID = store.selectedWeek!.id
+        interaction.beginNewTask(in: .dayTask(weekID: weekID, weekday: .monday))
+        interaction.commitEdit(using: store)
+
+        let monday = store.selectedWeek?.days.first { $0.weekday == .monday }
+        r.expectEqual(monday?.tasks.count, 0, "blank pending task should not be saved")
+        r.expectEqual(interaction.selectedItem, nil, "blank pending task should not leave stale selection")
+        r.expectEqual(interaction.editSession, nil, "edit session should close")
+    }
+
+    r.test("pending new task commits with stable address") {
+        let (store, _) = makeTempStore()
+        let interaction = TaskInteractionModel()
+        let weekID = store.selectedWeek!.id
+        interaction.beginNewTask(in: .dayTask(weekID: weekID, weekday: .monday))
+        guard let target = interaction.editSession?.target else {
+            r.expect(false, "new task should create an edit target")
+            return
+        }
+        interaction.updateDraftTitle("Plan release")
+        interaction.commitEdit(using: store)
+
+        let monday = store.selectedWeek?.days.first { $0.weekday == .monday }
+        r.expectEqual(monday?.tasks.first?.title, "Plan release", "pending title should be saved")
+        r.expectEqual(interaction.selectedItem, target, "selection should stay on the committed task")
+    }
+
     r.test("toggleDayTask flips completion") {
         let (store, _) = makeTempStore()
         let task = store.addTask(title: "Toggle me", to: .day(.monday))!

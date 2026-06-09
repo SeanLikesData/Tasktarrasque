@@ -31,24 +31,24 @@ struct ContentView: View {
             }
             .onMoveCommand { direction in
                 guard interaction.canUseMainShortcuts else { return }
-                moveFocus(direction)
+                moveSelection(direction)
             }
             .onDeleteCommand {
                 guard interaction.canUseMainShortcuts else { return }
-                deleteFocusedTask()
+                deleteSelectedItem()
             }
             .onKeyPress(.return) {
                 guard !isSheetOpen else { return .ignored }
                 if interaction.editSession != nil {
                     interaction.commitEdit(using: store)
                 } else {
-                    beginRenamingFocusedTask()
+                    beginRenamingSelectedItem()
                 }
                 return .handled
             }
             .onKeyPress("d") {
                 guard interaction.canUseMainShortcuts else { return .ignored }
-                toggleFocusedTask()
+                toggleSelectedItem()
                 return .handled
             }
             .onExitCommand {
@@ -79,27 +79,27 @@ struct ContentView: View {
             }
             .onKeyPress(keys: [.upArrow]) { press in
                 guard interaction.canUseMainShortcuts, press.modifiers.contains(.shift) else { return .ignored }
-                moveFocusedTaskByKeyboard(offset: -1)
+                moveSelectedItemByKeyboard(offset: -1)
                 return .handled
             }
             .onKeyPress(keys: [.downArrow]) { press in
                 guard interaction.canUseMainShortcuts, press.modifiers.contains(.shift) else { return .ignored }
-                moveFocusedTaskByKeyboard(offset: 1)
+                moveSelectedItemByKeyboard(offset: 1)
                 return .handled
             }
             .onKeyPress(keys: [.leftArrow]) { press in
                 guard interaction.canUseMainShortcuts, press.modifiers.contains(.shift) else { return .ignored }
-                moveFocusedTaskSideways(toDay: false)
+                moveSelectedItemSideways(toDay: false)
                 return .handled
             }
             .onKeyPress(keys: [.rightArrow]) { press in
                 guard interaction.canUseMainShortcuts, press.modifiers.contains(.shift) else { return .ignored }
-                moveFocusedTaskSideways(toDay: true)
+                moveSelectedItemSideways(toDay: true)
                 return .handled
             }
             .onKeyPress("r") {
                 guard interaction.canUseMainShortcuts else { return .ignored }
-                beginRenamingFocusedTask()
+                beginRenamingSelectedItem()
                 return .handled
             }
             if interaction.activeSheet == .settings { SettingsSheet(onClose: { interaction.activeSheet = nil }).zIndex(2) }
@@ -112,8 +112,8 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .tasktarrasquePopoverWillClose)) { _ in
             interaction.closeTransientState(committingWith: store)
         }
-        .onChange(of: store.selectedWeekID) { _, _ in validateFocusAfterSelectionChange() }
-        .onChange(of: store.selectedDay) { _, _ in validateFocusAfterSelectionChange() }
+        .onChange(of: store.selectedWeekID) { _, _ in validateSelectionAfterScopeChange() }
+        .onChange(of: store.selectedDay) { _, _ in validateSelectionAfterScopeChange() }
         .frame(width: popoverSize.width, height: popoverSize.height)
         .clipShape(RoundedRectangle(cornerRadius: TasktarrasqueStyle.panelCornerRadius, style: .continuous))
         .overlay(TasktarrasqueStyle.panelBorder)
@@ -212,7 +212,7 @@ struct ContentView: View {
                                     Divider()
                                     Button("Push to Next Week") {
                                         store.pushThisWeekTaskToNextWeek(task.id)
-                                        interaction.validateVisibleItems(focusOrder())
+                                        interaction.validateVisibleItems(selectionOrder())
                                     }
                                     Button(role: .destructive) {
                                         deleteItem(address)
@@ -496,64 +496,64 @@ struct ContentView: View {
         return true
     }
 
-    private func moveFocus(_ direction: MoveCommandDirection) {
+    private func moveSelection(_ direction: MoveCommandDirection) {
         guard let selectedItem = interaction.selectedItem else {
-            interaction.selectedItem = focusOrder().first
+            interaction.selectedItem = selectionOrder().first
             return
         }
 
         switch direction {
         case .up:
-            moveFocusVertically(from: selectedItem, offset: -1)
+            moveSelectionVertically(from: selectedItem, offset: -1)
         case .down:
-            moveFocusVertically(from: selectedItem, offset: 1)
+            moveSelectionVertically(from: selectedItem, offset: 1)
         case .left:
-            moveFocusHorizontally(from: selectedItem, toRightColumn: false)
+            moveSelectionHorizontally(from: selectedItem, toRightColumn: false)
         case .right:
-            moveFocusHorizontally(from: selectedItem, toRightColumn: true)
+            moveSelectionHorizontally(from: selectedItem, toRightColumn: true)
         @unknown default:
             break
         }
     }
 
-    private func moveFocusVertically(from current: TaskItemAddress, offset: Int) {
-        let items = focusColumn(containing: current)
+    private func moveSelectionVertically(from current: TaskItemAddress, offset: Int) {
+        let items = selectionColumn(containing: current)
         guard !items.isEmpty, let index = items.firstIndex(of: current) else { return }
         interaction.selectedItem = items[max(0, min(index + offset, items.count - 1))]
     }
 
-    private func moveFocusHorizontally(from current: TaskItemAddress, toRightColumn: Bool) {
-        let source = focusColumn(containing: current)
-        let target = toRightColumn ? rightColumnFocusOrder() : leftColumnFocusOrder()
+    private func moveSelectionHorizontally(from current: TaskItemAddress, toRightColumn: Bool) {
+        let source = selectionColumn(containing: current)
+        let target = toRightColumn ? rightColumnSelectionOrder() : leftColumnSelectionOrder()
         guard !target.isEmpty else { return }
         let sourceIndex = source.firstIndex(of: current) ?? 0
         interaction.selectedItem = target[min(sourceIndex, target.count - 1)]
     }
 
-    private func focusColumn(containing item: TaskItemAddress) -> [TaskItemAddress] {
+    private func selectionColumn(containing item: TaskItemAddress) -> [TaskItemAddress] {
         switch item {
         case .bigThree, .thisWeek:
-            leftColumnFocusOrder()
+            leftColumnSelectionOrder()
         case .habit, .dayTask:
-            rightColumnFocusOrder()
+            rightColumnSelectionOrder()
         }
     }
 
-    private func deleteFocusedTask() {
+    private func deleteSelectedItem() {
         guard let selectedItem = interaction.selectedItem else { return }
         deleteItem(selectedItem)
     }
 
     private func deleteItem(_ item: TaskItemAddress) {
-        let nextFocus = neighborFocus(of: item)
+        let nextSelection = neighborSelection(of: item)
         store.deleteItem(item)
-        interaction.selectedItem = nextFocus ?? focusOrder().first
+        interaction.selectedItem = nextSelection ?? selectionOrder().first
     }
 
-    /// The item that should receive focus after `item` is deleted: the next
+    /// The item that should be selected after `item` is deleted: the next
     /// item in the same column, or the previous one if it was last.
-    private func neighborFocus(of item: TaskItemAddress) -> TaskItemAddress? {
-        let column = focusColumn(containing: item)
+    private func neighborSelection(of item: TaskItemAddress) -> TaskItemAddress? {
+        let column = selectionColumn(containing: item)
         guard let index = column.firstIndex(of: item) else { return nil }
         if index + 1 < column.count { return column[index + 1] }
         if index - 1 >= 0 { return column[index - 1] }
@@ -563,18 +563,18 @@ struct ContentView: View {
     /// Enters rename mode only for items that have an editable text field.
     /// Habits are toggle-only and have no rename field, so renaming them would
     /// leave an invisible, dead rename state.
-    private func beginRenamingFocusedTask() {
+    private func beginRenamingSelectedItem() {
         guard let selectedItem = interaction.selectedItem,
               let title = store.title(for: selectedItem) else { return }
         interaction.beginEdit(selectedItem, currentTitle: title)
     }
 
-    private func toggleFocusedTask() {
+    private func toggleSelectedItem() {
         guard let selectedItem = interaction.selectedItem else { return }
         store.toggleItem(selectedItem)
     }
 
-    private func moveFocusedTaskByKeyboard(offset: Int) {
+    private func moveSelectedItemByKeyboard(offset: Int) {
         guard let selectedItem = interaction.selectedItem else { return }
         switch selectedItem {
         case .thisWeek(let weekID, let taskID):
@@ -586,10 +586,10 @@ struct ContentView: View {
         case .habit, .bigThree:
             return
         }
-        interaction.validateVisibleItems(focusOrder())
+        interaction.validateVisibleItems(selectionOrder())
     }
 
-    private func moveFocusedTaskSideways(toDay: Bool) {
+    private func moveSelectedItemSideways(toDay: Bool) {
         guard let selectedItem = interaction.selectedItem else { return }
         switch (selectedItem, toDay) {
         case (.thisWeek(let weekID, let taskID), true):
@@ -605,15 +605,15 @@ struct ContentView: View {
         }
     }
 
-    private func focusOrder() -> [TaskItemAddress] {
-        leftColumnFocusOrder() + rightColumnFocusOrder()
+    private func selectionOrder() -> [TaskItemAddress] {
+        leftColumnSelectionOrder() + rightColumnSelectionOrder()
     }
 
-    private func validateFocusAfterSelectionChange() {
-        interaction.validateVisibleItems(focusOrder())
+    private func validateSelectionAfterScopeChange() {
+        interaction.validateVisibleItems(selectionOrder())
     }
 
-    private func leftColumnFocusOrder() -> [TaskItemAddress] {
+    private func leftColumnSelectionOrder() -> [TaskItemAddress] {
         guard let week = store.selectedWeek else { return [] }
         let bigThree = [0, 1, 2].map { TaskItemAddress.bigThree(weekID: week.id, index: $0) }
         var thisWeek = week.thisWeekTasks.map { TaskItemAddress.thisWeek(weekID: week.id, taskID: $0.id) }
@@ -623,7 +623,7 @@ struct ContentView: View {
         return bigThree + thisWeek
     }
 
-    private func rightColumnFocusOrder() -> [TaskItemAddress] {
+    private func rightColumnSelectionOrder() -> [TaskItemAddress] {
         guard let week = store.selectedWeek,
               let dayPlan = store.selectedDayPlan else { return [] }
         let habits = dayPlan.habits.map {
@@ -660,7 +660,7 @@ struct ContentView: View {
                     Button("Delete Week") {
                         store.deleteWeek(week.id)
                         interaction.weekPendingDeletion = nil
-                        interaction.validateVisibleItems(focusOrder())
+                        interaction.validateVisibleItems(selectionOrder())
                     }
                     .buttonStyle(.plain)
                     .keyboardShortcut(.defaultAction)

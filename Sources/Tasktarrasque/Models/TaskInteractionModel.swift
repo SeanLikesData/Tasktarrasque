@@ -124,13 +124,16 @@ final class TaskInteractionModel: ObservableObject {
         switch editSession.mode {
         case .existing:
             store.updateTitle(for: editSession.target, title: editSession.draftTitle)
+            selectedItem = editSession.target
         case .new(let target):
             if !title.isEmpty, let taskID = editSession.target.taskID {
                 _ = store.addTask(id: taskID, title: title, to: target)
+                selectedItem = editSession.target
+            } else {
+                selectedItem = nil
             }
         }
 
-        selectedItem = editSession.target
         self.editSession = nil
     }
 
