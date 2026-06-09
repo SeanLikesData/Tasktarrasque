@@ -228,6 +228,7 @@ struct TemplateSheet: View {
 
     private func deleteFocusedItem() {
         guard let focusedItem else { return }
+        let nextFocus = neighborFocus(of: focusedItem)
         switch focusedItem.list {
         case .habits: remove(focusedItem.id, from: $draft.dailyHabits)
         case .thisWeek: remove(focusedItem.id, from: $draft.thisWeekTasks)
@@ -235,7 +236,17 @@ struct TemplateSheet: View {
             guard let index = draft.days.firstIndex(where: { $0.weekday == day }) else { return }
             remove(focusedItem.id, from: $draft.days[index].tasks)
         }
-        self.focusedItem = focusOrder().first
+        self.focusedItem = nextFocus
+    }
+
+    /// The item to focus after `item` is deleted: the next item in the same
+    /// column, or the previous one if it was last.
+    private func neighborFocus(of item: TemplateItemFocus) -> TemplateItemFocus? {
+        let items = column(containing: item)
+        guard let index = items.firstIndex(of: item) else { return nil }
+        if index + 1 < items.count { return items[index + 1] }
+        if index - 1 >= 0 { return items[index - 1] }
+        return nil
     }
 
     private func moveFocusedItem(offset: Int) {

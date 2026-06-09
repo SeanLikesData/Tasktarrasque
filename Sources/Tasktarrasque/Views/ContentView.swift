@@ -15,6 +15,11 @@ struct ContentView: View {
 
     private var popoverSize: CGSize { (PopoverSize(rawValue: popoverRaw) ?? .default).dimensions }
 
+    /// True while any sheet is showing. The main-view key handlers below
+    /// short-circuit in that case so shortcuts do not act on the hidden main
+    /// view while the user is in a sheet.
+    private var isSheetOpen: Bool { showingSettings || showingTemplate || showingShortcuts }
+
     var body: some View {
         ZStack {
             TasktarrasqueStyle.panelMaterial
@@ -27,9 +32,16 @@ struct ContentView: View {
                 TasktarrasqueStyle.divider
                 BottomBar(onSettings: { showingSettings = true })
             }
-            .onMoveCommand(perform: moveFocus)
-            .onDeleteCommand(perform: deleteFocusedTask)
+            .onMoveCommand { direction in
+                guard !isSheetOpen else { return }
+                moveFocus(direction)
+            }
+            .onDeleteCommand {
+                guard !isSheetOpen else { return }
+                deleteFocusedTask()
+            }
             .onKeyPress(.return) {
+                guard !isSheetOpen else { return .ignored }
                 if focusedRenameField != nil {
                     focusedRenameField = nil
                 } else {
@@ -38,6 +50,7 @@ struct ContentView: View {
                 return .handled
             }
             .onKeyPress("d") {
+                guard !isSheetOpen else { return .ignored }
                 toggleFocusedTask()
                 return .handled
             }
@@ -53,38 +66,42 @@ struct ContentView: View {
                 }
             }
             .onKeyPress("n") {
+                guard !isSheetOpen else { return .ignored }
                 createTask(in: .day(store.selectedDay))
                 return .handled
             }
             .onKeyPress("w") {
+                guard !isSheetOpen else { return .ignored }
                 createTask(in: .thisWeek)
                 return .handled
             }
             .onKeyPress("?") {
+                guard !isSheetOpen else { return .ignored }
                 showingShortcuts = true
                 return .handled
             }
             .onKeyPress(keys: [.upArrow]) { press in
-                guard press.modifiers.contains(.shift) else { return .ignored }
+                guard !isSheetOpen, press.modifiers.contains(.shift) else { return .ignored }
                 moveFocusedTaskByKeyboard(offset: -1)
                 return .handled
             }
             .onKeyPress(keys: [.downArrow]) { press in
-                guard press.modifiers.contains(.shift) else { return .ignored }
+                guard !isSheetOpen, press.modifiers.contains(.shift) else { return .ignored }
                 moveFocusedTaskByKeyboard(offset: 1)
                 return .handled
             }
             .onKeyPress(keys: [.leftArrow]) { press in
-                guard press.modifiers.contains(.shift) else { return .ignored }
+                guard !isSheetOpen, press.modifiers.contains(.shift) else { return .ignored }
                 moveFocusedTaskSideways(toDay: false)
                 return .handled
             }
             .onKeyPress(keys: [.rightArrow]) { press in
-                guard press.modifiers.contains(.shift) else { return .ignored }
+                guard !isSheetOpen, press.modifiers.contains(.shift) else { return .ignored }
                 moveFocusedTaskSideways(toDay: true)
                 return .handled
             }
             .onKeyPress("r") {
+                guard !isSheetOpen else { return .ignored }
                 beginRenamingFocusedTask()
                 return .handled
             }
@@ -94,6 +111,12 @@ struct ContentView: View {
             if let persistenceError = store.persistenceError { errorBanner(persistenceError) }
         }
         .preferredColorScheme(.dark)
+        .onReceive(NotificationCenter.default.publisher(for: .tasktarrasquePopoverWillClose)) { _ in
+            showingSettings = false
+            showingTemplate = false
+            showingShortcuts = false
+            focusedRenameField = nil
+        }
         .frame(width: popoverSize.width, height: popoverSize.height)
         .clipShape(RoundedRectangle(cornerRadius: TasktarrasqueStyle.panelCornerRadius, style: .continuous))
         .overlay(TasktarrasqueStyle.panelBorder)
@@ -385,12 +408,25 @@ struct ContentView: View {
 
     private func deleteFocusedTask() {
         guard let focusedTask else { return }
+        // Choose the neighbor to focus before the list shrinks, so focus lands
+        // on an adjacent task rather than jumping to the top of the panel.
+        let nextFocus = neighborFocus(of: focusedTask)
         switch focusedTask {
         case .thisWeek(let id): store.deleteThisWeekTask(id)
         case .day(let id): store.deleteDayTask(id)
         case .habit, .bigThree: return
         }
-        self.focusedTask = focusOrder().first
+        self.focusedTask = nextFocus ?? focusOrder().first
+    }
+
+    /// The item that should receive focus after `item` is deleted: the next
+    /// item in the same column, or the previous one if it was last.
+    private func neighborFocus(of item: FocusedTask) -> FocusedTask? {
+        let column = focusColumn(containing: item)
+        guard let index = column.firstIndex(of: item) else { return nil }
+        if index + 1 < column.count { return column[index + 1] }
+        if index - 1 >= 0 { return column[index - 1] }
+        return nil
     }
 
     /// Enters rename mode only for items that have an editable text field.
