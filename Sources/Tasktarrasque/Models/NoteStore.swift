@@ -173,6 +173,90 @@ final class TaskStore: ObservableObject {
         return task
     }
 
+    @discardableResult
+    func addTask(id: UUID = UUID(), title: String, to target: TaskCreationTarget) -> TodoTask? {
+        guard let weekIndex = weekIndex(for: target.weekID) else { return nil }
+        let task = TodoTask(id: id, title: title.trimmingCharacters(in: .whitespacesAndNewlines))
+        switch target {
+        case .thisWeek:
+            weeks[weekIndex].thisWeekTasks.append(task)
+        case .dayTask(_, let weekday):
+            guard let dayIndex = dayIndex(for: weekday, in: weekIndex) else { return nil }
+            weeks[weekIndex].days[dayIndex].tasks.append(task)
+        }
+        saveNow()
+        return task
+    }
+
+    func title(for address: TaskItemAddress) -> String? {
+        switch address {
+        case .bigThree(let weekID, let index):
+            guard let weekIndex = self.weekIndex(for: weekID),
+                  weeks[weekIndex].bigThree.indices.contains(index) else { return nil }
+            return weeks[weekIndex].bigThree[index].title
+        case .thisWeek(let weekID, let taskID):
+            guard let location = thisWeekTaskLocation(weekID: weekID, taskID: taskID) else { return nil }
+            return weeks[location.week].thisWeekTasks[location.task].title
+        case .habit(let weekID, let weekday, let habitID):
+            guard let location = habitLocation(weekID: weekID, weekday: weekday, habitID: habitID) else { return nil }
+            return weeks[location.week].days[location.day].habits[location.habit].title
+        case .dayTask(let weekID, let weekday, let taskID):
+            guard let location = dayTaskLocation(weekID: weekID, weekday: weekday, taskID: taskID) else { return nil }
+            return weeks[location.week].days[location.day].tasks[location.task].title
+        }
+    }
+
+    func updateTitle(for address: TaskItemAddress, title: String) {
+        switch address {
+        case .bigThree(let weekID, let index):
+            guard let weekIndex = self.weekIndex(for: weekID), index >= 0, index < 3 else { return }
+            weeks[weekIndex].bigThree = normalizedBigThree(weeks[weekIndex].bigThree)
+            weeks[weekIndex].bigThree[index].title = title
+        case .thisWeek(let weekID, let taskID):
+            guard let location = thisWeekTaskLocation(weekID: weekID, taskID: taskID) else { return }
+            weeks[location.week].thisWeekTasks[location.task].title = title
+        case .dayTask(let weekID, let weekday, let taskID):
+            guard let location = dayTaskLocation(weekID: weekID, weekday: weekday, taskID: taskID) else { return }
+            weeks[location.week].days[location.day].tasks[location.task].title = title
+        case .habit:
+            return
+        }
+        scheduleSave()
+    }
+
+    func toggleItem(_ address: TaskItemAddress) {
+        switch address {
+        case .bigThree(let weekID, let index):
+            guard let weekIndex = self.weekIndex(for: weekID), index >= 0, index < 3 else { return }
+            weeks[weekIndex].bigThree = normalizedBigThree(weeks[weekIndex].bigThree)
+            weeks[weekIndex].bigThree[index].isDone.toggle()
+        case .habit(let weekID, let weekday, let habitID):
+            guard let location = habitLocation(weekID: weekID, weekday: weekday, habitID: habitID) else { return }
+            weeks[location.week].days[location.day].habits[location.habit].isDone.toggle()
+        case .dayTask(let weekID, let weekday, let taskID):
+            guard let location = dayTaskLocation(weekID: weekID, weekday: weekday, taskID: taskID) else { return }
+            weeks[location.week].days[location.day].tasks[location.task].isDone.toggle()
+        case .thisWeek:
+            return
+        }
+        saveNow()
+    }
+
+    func deleteItem(_ address: TaskItemAddress) {
+        switch address {
+        case .thisWeek(let weekID, let taskID):
+            guard let weekIndex = self.weekIndex(for: weekID) else { return }
+            weeks[weekIndex].thisWeekTasks.removeAll { $0.id == taskID }
+        case .dayTask(let weekID, let weekday, let taskID):
+            guard let weekIndex = self.weekIndex(for: weekID),
+                  let dayIndex = self.dayIndex(for: weekday, in: weekIndex) else { return }
+            weeks[weekIndex].days[dayIndex].tasks.removeAll { $0.id == taskID }
+        case .bigThree, .habit:
+            return
+        }
+        saveNow()
+    }
+
     func toggleDayTask(_ taskID: UUID) {
         guard let weekIndex = selectedWeekIndex,
               let dayIndex = weeks[weekIndex].days.firstIndex(where: { $0.weekday == selectedDay }),
@@ -336,6 +420,34 @@ final class TaskStore: ObservableObject {
         weeks.append(week)
         weeks.sort { $0.startDate < $1.startDate }
         return weeks.firstIndex { Calendar.current.isDate($0.startDate, inSameDayAs: start) } ?? (weeks.count - 1)
+    }
+
+    private func weekIndex(for weekID: UUID) -> Int? {
+        weeks.firstIndex { $0.id == weekID }
+    }
+
+    private func dayIndex(for weekday: Weekday, in weekIndex: Int) -> Int? {
+        weeks[weekIndex].days.firstIndex { $0.weekday == weekday }
+    }
+
+    private func thisWeekTaskLocation(weekID: UUID, taskID: UUID) -> (week: Int, task: Int)? {
+        guard let weekIndex = self.weekIndex(for: weekID),
+              let taskIndex = weeks[weekIndex].thisWeekTasks.firstIndex(where: { $0.id == taskID }) else { return nil }
+        return (weekIndex, taskIndex)
+    }
+
+    private func dayTaskLocation(weekID: UUID, weekday: Weekday, taskID: UUID) -> (week: Int, day: Int, task: Int)? {
+        guard let weekIndex = self.weekIndex(for: weekID),
+              let dayIndex = self.dayIndex(for: weekday, in: weekIndex),
+              let taskIndex = weeks[weekIndex].days[dayIndex].tasks.firstIndex(where: { $0.id == taskID }) else { return nil }
+        return (weekIndex, dayIndex, taskIndex)
+    }
+
+    private func habitLocation(weekID: UUID, weekday: Weekday, habitID: UUID) -> (week: Int, day: Int, habit: Int)? {
+        guard let weekIndex = self.weekIndex(for: weekID),
+              let dayIndex = self.dayIndex(for: weekday, in: weekIndex),
+              let habitIndex = weeks[weekIndex].days[dayIndex].habits.firstIndex(where: { $0.id == habitID }) else { return nil }
+        return (weekIndex, dayIndex, habitIndex)
     }
 
     private func mondayStart(for date: Date) -> Date {

@@ -22,6 +22,7 @@ BIN="$OUT_DIR/TasktarrasqueTests"
 # excluded so there is no second @main and no UI dependency.
 SOURCES=(
     Sources/Tasktarrasque/Models/TaskModels.swift
+    Sources/Tasktarrasque/Models/TaskInteractionModel.swift
     Sources/Tasktarrasque/Models/NoteStore.swift
     Tests/main.swift
 )
