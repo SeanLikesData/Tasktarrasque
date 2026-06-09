@@ -1,0 +1,134 @@
+import SwiftUI
+
+struct SharedSectionHeader: View {
+    let title: String
+    let shortcut: String
+    let action: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(title).font(.system(size: 15, weight: .bold))
+            Spacer()
+            Button(action: action) {
+                HStack(spacing: 5) {
+                    Image(systemName: "plus.circle.fill")
+                    Text(shortcut)
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .background(RoundedRectangle(cornerRadius: 8).fill(TasktarrasqueStyle.controlBackground))
+                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(TasktarrasqueStyle.controlStroke))
+            }
+            .buttonStyle(.plain)
+            .help("Create new \(title.lowercased()) item")
+        }
+    }
+}
+
+struct SharedTaskCard<FocusValue: Hashable, MenuContent: View>: View {
+    @Binding var title: String
+    let placeholder: String
+    let isSelected: Bool
+    let isChecked: Bool
+    let checkIcon: String
+    let uncheckedIcon: String
+    let onToggle: (() -> Void)?
+    var renameFocus: FocusState<FocusValue?>.Binding
+    let focusID: FocusValue
+    @ViewBuilder let menu: () -> MenuContent
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Button { onToggle?() } label: {
+                Image(systemName: isChecked ? checkIcon : uncheckedIcon)
+            }
+            .buttonStyle(.plain)
+            .disabled(onToggle == nil)
+
+            Group {
+                if renameFocus.wrappedValue == focusID {
+                    TextField(placeholder, text: $title)
+                        .textFieldStyle(.plain)
+                        .focused(renameFocus, equals: focusID)
+                        .onSubmit { renameFocus.wrappedValue = nil }
+                } else {
+                    Text(title.isEmpty ? placeholder : title)
+                        .foregroundStyle(title.isEmpty ? .secondary : .primary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+            }
+            .strikethrough(isChecked)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Menu(content: menu) {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 13, weight: .semibold))
+                    .frame(width: 24, height: 22)
+                    .contentShape(Rectangle())
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .frame(width: 28)
+        }
+        .font(.system(size: 13))
+        .padding(8)
+        .background(RoundedRectangle(cornerRadius: 10).fill(isSelected ? TasktarrasqueStyle.activeControlBackground : TasktarrasqueStyle.controlBackground.opacity(0.8)))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(isSelected ? TasktarrasqueStyle.activeControlStroke : TasktarrasqueStyle.controlStroke))
+    }
+}
+
+struct FlowLayout: Layout {
+    let horizontalSpacing: CGFloat
+    let verticalSpacing: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Void) -> CGSize {
+        let rows = rows(for: subviews, proposedWidth: proposal.width ?? 0)
+        let width = proposal.width ?? rows.map(\.width).max() ?? 0
+        let height = rows.map(\.height).reduce(0, +) + verticalSpacing * CGFloat(max(0, rows.count - 1))
+        return CGSize(width: width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Void) {
+        let rows = rows(for: subviews, proposedWidth: bounds.width)
+        var y = bounds.minY
+        for row in rows {
+            var x = bounds.minX
+            for item in row.items {
+                subviews[item.index].place(at: CGPoint(x: x, y: y), anchor: .topLeading, proposal: ProposedViewSize(item.size))
+                x += item.size.width + horizontalSpacing
+            }
+            y += row.height + verticalSpacing
+        }
+    }
+
+    private func rows(for subviews: Subviews, proposedWidth: CGFloat) -> [FlowRow] {
+        let maxWidth = max(proposedWidth, 1)
+        var rows: [FlowRow] = []
+        var currentItems: [FlowItem] = []
+        var currentWidth: CGFloat = 0
+        var currentHeight: CGFloat = 0
+
+        for index in subviews.indices {
+            let size = subviews[index].sizeThatFits(.unspecified)
+            let nextWidth = currentItems.isEmpty ? size.width : currentWidth + horizontalSpacing + size.width
+            if nextWidth > maxWidth, !currentItems.isEmpty {
+                rows.append(FlowRow(items: currentItems, width: currentWidth, height: currentHeight))
+                currentItems = [FlowItem(index: index, size: size)]
+                currentWidth = size.width
+                currentHeight = size.height
+            } else {
+                currentItems.append(FlowItem(index: index, size: size))
+                currentWidth = nextWidth
+                currentHeight = max(currentHeight, size.height)
+            }
+        }
+        if !currentItems.isEmpty { rows.append(FlowRow(items: currentItems, width: currentWidth, height: currentHeight)) }
+        return rows
+    }
+
+    private struct FlowRow { var items: [FlowItem]; var width: CGFloat; var height: CGFloat }
+    private struct FlowItem { var index: Int; var size: CGSize }
+}
