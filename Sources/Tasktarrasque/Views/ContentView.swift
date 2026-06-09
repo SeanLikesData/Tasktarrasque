@@ -105,7 +105,7 @@ struct ContentView: View {
                 ForEach(store.weeks) { week in Text(week.pickerTitle).tag(week.id) }
             }
             .labelsHidden()
-            .frame(width: 270)
+            .frame(maxWidth: 270)
             Button("New Week") { store.createNewWeek() }.buttonStyle(.plain).glassPill(cornerRadius: 8)
             Button("Template") { showingTemplate = true }.buttonStyle(.plain).glassPill(cornerRadius: 8)
             Button("Shortcuts") { showingShortcuts = true }.buttonStyle(.plain).glassPill(cornerRadius: 8)
