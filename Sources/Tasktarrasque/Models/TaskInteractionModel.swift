@@ -125,8 +125,8 @@ final class TaskInteractionModel: ObservableObject {
         case .existing:
             store.updateTitle(for: editSession.target, title: editSession.draftTitle)
         case .new(let target):
-            if !title.isEmpty {
-                _ = store.addTask(id: editSession.target.taskID, title: title, to: target)
+            if !title.isEmpty, let taskID = editSession.target.taskID {
+                _ = store.addTask(id: taskID, title: title, to: target)
             }
         }
 
@@ -161,7 +161,7 @@ final class TaskInteractionModel: ObservableObject {
 }
 
 extension TaskItemAddress {
-    fileprivate var taskID: UUID {
+    fileprivate var taskID: UUID? {
         switch self {
         case .thisWeek(_, let taskID),
              .dayTask(_, _, let taskID):
@@ -169,7 +169,7 @@ extension TaskItemAddress {
         case .habit(_, _, let habitID):
             habitID
         case .bigThree:
-            UUID()
+            nil
         }
     }
 }

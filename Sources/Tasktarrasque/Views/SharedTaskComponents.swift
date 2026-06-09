@@ -28,16 +28,19 @@ struct SharedSectionHeader: View {
     }
 }
 
-struct SharedTaskCard<FocusValue: Hashable, MenuContent: View>: View {
+struct SharedTaskCard<MenuContent: View>: View {
     @Binding var title: String
     let placeholder: String
     let isSelected: Bool
+    let isEditing: Bool
     let isChecked: Bool
     let checkIcon: String
     let uncheckedIcon: String
     let onToggle: (() -> Void)?
-    @Binding var renameFocus: FocusValue?
-    let focusID: FocusValue
+    let onSelect: () -> Void
+    let onBeginEdit: () -> Void
+    let onCommitEdit: () -> Void
+    let onCancelEdit: () -> Void
     @ViewBuilder let menu: () -> MenuContent
 
     var body: some View {
@@ -59,13 +62,15 @@ struct SharedTaskCard<FocusValue: Hashable, MenuContent: View>: View {
             .frame(width: 16, height: 16)
 
             Group {
-                if renameFocus == focusID {
+                if isEditing {
                     FirstResponderTextField(
                         text: $title,
                         placeholder: placeholder,
                         isFirstResponder: true
                     ) {
-                        renameFocus = nil
+                        onCommitEdit()
+                    } onCancel: {
+                        onCancelEdit()
                     }
                     .frame(height: 18)
                 } else {
@@ -73,15 +78,15 @@ struct SharedTaskCard<FocusValue: Hashable, MenuContent: View>: View {
                         .foregroundStyle(title.isEmpty ? .secondary : .primary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(Rectangle())
-                        .onTapGesture { beginRename() }
-                        .onTapGesture(count: 2) { beginRename() }
+                        .onTapGesture { onBeginEdit() }
+                        .onTapGesture(count: 2) { onBeginEdit() }
                 }
             }
             .strikethrough(isChecked)
             .frame(maxWidth: .infinity, alignment: .leading)
 
             Menu {
-                Button("Rename") { beginRename() }
+                Button("Rename") { onBeginEdit() }
                 Divider()
                 menu()
             } label: {
@@ -99,12 +104,8 @@ struct SharedTaskCard<FocusValue: Hashable, MenuContent: View>: View {
         .padding(8)
         .background(RoundedRectangle(cornerRadius: 10).fill(isSelected ? TasktarrasqueStyle.activeControlBackground : TasktarrasqueStyle.controlBackground.opacity(0.8)))
         .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(isSelected ? TasktarrasqueStyle.activeControlStroke : TasktarrasqueStyle.controlStroke))
-    }
-
-    private func beginRename() {
-        DispatchQueue.main.async {
-            renameFocus = focusID
-        }
+        .contentShape(Rectangle())
+        .onTapGesture { onSelect() }
     }
 }
 
@@ -113,6 +114,7 @@ struct FirstResponderTextField: NSViewRepresentable {
     let placeholder: String
     let isFirstResponder: Bool
     let onCommit: () -> Void
+    let onCancel: () -> Void
 
     func makeNSView(context: Context) -> NSTextField {
         let textField = NSTextField(string: text)
@@ -175,7 +177,7 @@ struct FirstResponderTextField: NSViewRepresentable {
                 return true
             }
             if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
-                parent.onCommit()
+                parent.onCancel()
                 return true
             }
             return false

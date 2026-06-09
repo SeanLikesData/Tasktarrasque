@@ -5,22 +5,13 @@ import UniformTypeIdentifiers
 struct ContentView: View {
     @EnvironmentObject private var store: TaskStore
     @AppStorage(SettingsKey.popoverSize) private var popoverRaw = PopoverSize.default.rawValue
-    @State private var showingSettings = false
-    @State private var showingTemplate = false
-    @State private var showingShortcuts = false
-    @State private var weekPendingDeletion: WeekPlan?
+    @StateObject private var interaction = TaskInteractionModel()
     @State private var draggedThisWeekTaskID: UUID?
     @State private var draggedDayTaskID: UUID?
-    @State private var focusedRenameField: FocusedTask?
-    @FocusState private var focusedTask: FocusedTask?
 
     private var popoverSize: CGSize { (PopoverSize(rawValue: popoverRaw) ?? .default).dimensions }
 
-    /// True while any sheet is showing. The main-view key handlers below
-    /// short-circuit in that case so shortcuts do not act on the hidden main
-    /// view while the user is in a sheet.
-    private var isSheetOpen: Bool { showingSettings || showingTemplate || showingShortcuts || weekPendingDeletion != nil }
-    private var canUseMainShortcuts: Bool { !isSheetOpen && focusedRenameField == nil }
+    private var isSheetOpen: Bool { interaction.activeSheet != nil || interaction.weekPendingDeletion != nil }
 
     var body: some View {
         ZStack {
@@ -33,99 +24,93 @@ struct ContentView: View {
                 mainBody
                 TasktarrasqueStyle.divider
                 BottomBar(
-                    onTemplate: { showingTemplate = true },
-                    onShortcuts: { showingShortcuts = true },
-                    onSettings: { showingSettings = true }
+                    onTemplate: { interaction.activeSheet = .template },
+                    onShortcuts: { interaction.activeSheet = .shortcuts },
+                    onSettings: { interaction.activeSheet = .settings }
                 )
             }
             .onMoveCommand { direction in
-                guard canUseMainShortcuts else { return }
+                guard interaction.canUseMainShortcuts else { return }
                 moveFocus(direction)
             }
             .onDeleteCommand {
-                guard canUseMainShortcuts else { return }
+                guard interaction.canUseMainShortcuts else { return }
                 deleteFocusedTask()
             }
             .onKeyPress(.return) {
                 guard !isSheetOpen else { return .ignored }
-                if focusedRenameField != nil {
-                    focusedRenameField = nil
+                if interaction.editSession != nil {
+                    interaction.commitEdit(using: store)
                 } else {
                     beginRenamingFocusedTask()
                 }
                 return .handled
             }
             .onKeyPress("d") {
-                guard canUseMainShortcuts else { return .ignored }
+                guard interaction.canUseMainShortcuts else { return .ignored }
                 toggleFocusedTask()
                 return .handled
             }
             .onExitCommand {
-                if weekPendingDeletion != nil {
-                    weekPendingDeletion = nil
-                } else if showingTemplate {
-                    showingTemplate = false
-                } else if showingShortcuts {
-                    showingShortcuts = false
-                } else if showingSettings {
-                    showingSettings = false
+                if interaction.weekPendingDeletion != nil {
+                    interaction.weekPendingDeletion = nil
+                } else if interaction.activeSheet != nil {
+                    interaction.activeSheet = nil
+                } else if interaction.editSession != nil {
+                    interaction.cancelEdit()
                 } else {
-                    focusedRenameField = nil
+                    interaction.selectedItem = nil
                 }
             }
             .onKeyPress("n") {
-                guard canUseMainShortcuts else { return .ignored }
-                createTask(in: .day(store.selectedDay))
+                guard interaction.canUseMainShortcuts else { return .ignored }
+                createTaskInSelectedDay()
                 return .handled
             }
             .onKeyPress("w") {
-                guard canUseMainShortcuts else { return .ignored }
-                createTask(in: .thisWeek)
+                guard interaction.canUseMainShortcuts else { return .ignored }
+                createThisWeekTask()
                 return .handled
             }
             .onKeyPress("?") {
-                guard canUseMainShortcuts else { return .ignored }
-                showingShortcuts = true
+                guard interaction.canUseMainShortcuts else { return .ignored }
+                interaction.activeSheet = .shortcuts
                 return .handled
             }
             .onKeyPress(keys: [.upArrow]) { press in
-                guard canUseMainShortcuts, press.modifiers.contains(.shift) else { return .ignored }
+                guard interaction.canUseMainShortcuts, press.modifiers.contains(.shift) else { return .ignored }
                 moveFocusedTaskByKeyboard(offset: -1)
                 return .handled
             }
             .onKeyPress(keys: [.downArrow]) { press in
-                guard canUseMainShortcuts, press.modifiers.contains(.shift) else { return .ignored }
+                guard interaction.canUseMainShortcuts, press.modifiers.contains(.shift) else { return .ignored }
                 moveFocusedTaskByKeyboard(offset: 1)
                 return .handled
             }
             .onKeyPress(keys: [.leftArrow]) { press in
-                guard canUseMainShortcuts, press.modifiers.contains(.shift) else { return .ignored }
+                guard interaction.canUseMainShortcuts, press.modifiers.contains(.shift) else { return .ignored }
                 moveFocusedTaskSideways(toDay: false)
                 return .handled
             }
             .onKeyPress(keys: [.rightArrow]) { press in
-                guard canUseMainShortcuts, press.modifiers.contains(.shift) else { return .ignored }
+                guard interaction.canUseMainShortcuts, press.modifiers.contains(.shift) else { return .ignored }
                 moveFocusedTaskSideways(toDay: true)
                 return .handled
             }
             .onKeyPress("r") {
-                guard canUseMainShortcuts else { return .ignored }
+                guard interaction.canUseMainShortcuts else { return .ignored }
                 beginRenamingFocusedTask()
                 return .handled
             }
-            if showingSettings { SettingsSheet(onClose: { showingSettings = false }).zIndex(2) }
-            if showingTemplate { TemplateSheet(onClose: { showingTemplate = false }).environmentObject(store).zIndex(2) }
-            if showingShortcuts { KeyboardShortcutsSheet(onClose: { showingShortcuts = false }).zIndex(2) }
-            if let week = weekPendingDeletion { deleteWeekConfirmation(week).zIndex(3) }
+            if interaction.activeSheet == .settings { SettingsSheet(onClose: { interaction.activeSheet = nil }).zIndex(2) }
+            if interaction.activeSheet == .template { TemplateSheet(onClose: { interaction.activeSheet = nil }).environmentObject(store).zIndex(2) }
+            if interaction.activeSheet == .shortcuts { KeyboardShortcutsSheet(onClose: { interaction.activeSheet = nil }).zIndex(2) }
+            if let week = interaction.weekPendingDeletion { deleteWeekConfirmation(week).zIndex(3) }
             if let persistenceError = store.persistenceError { errorBanner(persistenceError) }
         }
         .preferredColorScheme(.dark)
         .onReceive(NotificationCenter.default.publisher(for: .tasktarrasquePopoverWillClose)) { _ in
-            showingSettings = false
-            showingTemplate = false
-            showingShortcuts = false
-            weekPendingDeletion = nil
-            focusedRenameField = nil
+            interaction.closeTransientState(committingWith: store)
         }
         .onChange(of: store.selectedWeekID) { _, _ in validateFocusAfterSelectionChange() }
         .onChange(of: store.selectedDay) { _, _ in validateFocusAfterSelectionChange() }
@@ -151,7 +136,7 @@ struct ContentView: View {
             .glassPill(cornerRadius: 8)
             .help("Create the next week")
             .accessibilityLabel("Create new week")
-            Button { weekPendingDeletion = store.selectedWeek } label: {
+            Button { interaction.weekPendingDeletion = store.selectedWeek } label: {
                 Image(systemName: "trash")
             }
             .buttonStyle(.plain)
@@ -206,44 +191,63 @@ struct ContentView: View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    SharedSectionHeader(title: "This Week", shortcut: "W") { createTask(in: .thisWeek) }
+                    SharedSectionHeader(title: "This Week", shortcut: "W") { createThisWeekTask() }
                     bigThree
                     VStack(spacing: 8) {
-                        ForEach(store.selectedWeek?.thisWeekTasks ?? []) { task in
-                            SharedTaskCard(
-                                title: Binding(
-                                    get: { task.title },
-                                    set: { store.updateThisWeekTaskTitle(task.id, title: $0) }
-                                ),
-                                placeholder: "Task",
-                                isSelected: focusedTask == .thisWeek(task.id),
-                                isChecked: false,
-                                checkIcon: "checkmark.circle.fill",
-                                uncheckedIcon: "circle",
-                                onToggle: nil,
-                                renameFocus: $focusedRenameField,
-                                focusID: .thisWeek(task.id)
-                            ) {
-                                ForEach(Weekday.allCases) { day in Button("Move to \(day.rawValue)") { store.moveThisWeekTask(task.id, to: day) } }
-                                Divider()
-                                Button("Push to Next Week") { store.pushThisWeekTaskToNextWeek(task.id) }
-                                Button(role: .destructive) { store.deleteThisWeekTask(task.id) } label: { Text("Delete") }
-                            }
-                            .focusable()
-                            .focused($focusedTask, equals: .thisWeek(task.id))
-                            .onTapGesture { focusedTask = .thisWeek(task.id) }
-                            .onDrag {
-                                draggedThisWeekTaskID = task.id
-                                return NSItemProvider(object: task.id.uuidString as NSString)
-                            }
-                            .onDrop(
-                                of: [UTType.text.identifier],
-                                delegate: ThisWeekTaskDropDelegate(
-                                    targetTaskID: task.id,
-                                    draggedTaskID: $draggedThisWeekTaskID,
-                                    store: store
+                        if let week = store.selectedWeek {
+                            ForEach(week.thisWeekTasks) { task in
+                                let address = TaskItemAddress.thisWeek(weekID: week.id, taskID: task.id)
+                                taskCard(
+                                    address: address,
+                                    title: task.title,
+                                    isChecked: false,
+                                    onToggle: nil
+                                ) {
+                                    ForEach(Weekday.allCases) { day in
+                                        Button("Move to \(day.rawValue)") {
+                                            store.moveThisWeekTask(task.id, to: day)
+                                            interaction.select(.dayTask(weekID: week.id, weekday: day, taskID: task.id))
+                                        }
+                                    }
+                                    Divider()
+                                    Button("Push to Next Week") {
+                                        store.pushThisWeekTaskToNextWeek(task.id)
+                                        interaction.validateVisibleItems(focusOrder())
+                                    }
+                                    Button(role: .destructive) {
+                                        deleteItem(address)
+                                    } label: {
+                                        Text("Delete")
+                                    }
+                                }
+                                .onDrag {
+                                    draggedThisWeekTaskID = task.id
+                                    return NSItemProvider(object: task.id.uuidString as NSString)
+                                }
+                                .onDrop(
+                                    of: [UTType.text.identifier],
+                                    delegate: ThisWeekTaskDropDelegate(
+                                        targetTaskID: task.id,
+                                        draggedTaskID: $draggedThisWeekTaskID,
+                                        store: store
+                                    )
                                 )
-                            )
+                            }
+
+                            if let pending = pendingNewThisWeekAddress(for: week.id) {
+                                taskCard(
+                                    address: pending,
+                                    title: "",
+                                    isChecked: false,
+                                    onToggle: nil
+                                ) {
+                                    Button(role: .destructive) {
+                                        interaction.cancelEdit()
+                                    } label: {
+                                        Text("Cancel")
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -256,43 +260,56 @@ struct ContentView: View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(spacing: 10) {
-                    SharedSectionHeader(title: "Tasks", shortcut: "N") { createTask(in: .day(store.selectedDay)) }
-                    if let habits = store.selectedDayPlan?.habits, !habits.isEmpty {
-                        habitsView(habits)
+                    SharedSectionHeader(title: "Tasks", shortcut: "N") { createTaskInSelectedDay() }
+                    if let week = store.selectedWeek,
+                       let dayPlan = store.selectedDayPlan,
+                       !dayPlan.habits.isEmpty {
+                        habitsView(dayPlan.habits, weekID: week.id, weekday: dayPlan.weekday)
                     }
-                    ForEach(store.selectedDayPlan?.tasks ?? []) { task in
-                        SharedTaskCard(
-                            title: Binding(
-                                get: { task.title },
-                                set: { store.updateDayTaskTitle(task.id, title: $0) }
-                            ),
-                            placeholder: "Task",
-                            isSelected: focusedTask == .day(task.id),
-                            isChecked: task.isDone,
-                            checkIcon: "checkmark.circle.fill",
-                            uncheckedIcon: "circle",
-                            onToggle: { store.toggleDayTask(task.id) },
-                            renameFocus: $focusedRenameField,
-                            focusID: .day(task.id)
-                        ) {
-                            Button(role: .destructive) { store.deleteDayTask(task.id) } label: { Text("Delete") }
-                        }
-                        .focusable()
-                        .focused($focusedTask, equals: .day(task.id))
-                        .onTapGesture { focusedTask = .day(task.id) }
-                        .onDrag {
-                            draggedDayTaskID = task.id
-                            return NSItemProvider(object: task.id.uuidString as NSString)
-                        }
-                        .onDrop(
-                            of: [UTType.text.identifier],
-                            delegate: DayTaskDropDelegate(
-                                targetTaskID: task.id,
-                                draggedTaskID: $draggedDayTaskID,
-                                draggedThisWeekTaskID: $draggedThisWeekTaskID,
-                                store: store
+                    if let week = store.selectedWeek, let dayPlan = store.selectedDayPlan {
+                        ForEach(dayPlan.tasks) { task in
+                            let address = TaskItemAddress.dayTask(weekID: week.id, weekday: dayPlan.weekday, taskID: task.id)
+                            taskCard(
+                                address: address,
+                                title: task.title,
+                                isChecked: task.isDone,
+                                onToggle: { store.toggleItem(address) }
+                            ) {
+                                Button(role: .destructive) {
+                                    deleteItem(address)
+                                } label: {
+                                    Text("Delete")
+                                }
+                            }
+                            .onDrag {
+                                draggedDayTaskID = task.id
+                                return NSItemProvider(object: task.id.uuidString as NSString)
+                            }
+                            .onDrop(
+                                of: [UTType.text.identifier],
+                                delegate: DayTaskDropDelegate(
+                                    targetTaskID: task.id,
+                                    draggedTaskID: $draggedDayTaskID,
+                                    draggedThisWeekTaskID: $draggedThisWeekTaskID,
+                                    store: store
+                                )
                             )
-                        )
+                        }
+
+                        if let pending = pendingNewDayTaskAddress(weekID: week.id, weekday: dayPlan.weekday) {
+                            taskCard(
+                                address: pending,
+                                title: "",
+                                isChecked: false,
+                                onToggle: nil
+                            ) {
+                                Button(role: .destructive) {
+                                    interaction.cancelEdit()
+                                } label: {
+                                    Text("Cancel")
+                                }
+                            }
+                        }
                     }
                 }
                 .frame(maxWidth: .infinity, minHeight: 260, alignment: .top)
@@ -304,11 +321,19 @@ struct ContentView: View {
         }
     }
 
-    private func habitsView(_ habits: [TodoTask]) -> some View {
+    private func habitsView(_ habits: [TodoTask], weekID: UUID, weekday: Weekday) -> some View {
         VStack(alignment: .leading, spacing: 7) {
             FlowLayout(horizontalSpacing: 8, verticalSpacing: 8) {
                 ForEach(habits) { habit in
-                    Button { store.toggleHabit(habit.id) } label: {
+                    let address = TaskItemAddress.habit(
+                        weekID: weekID,
+                        weekday: weekday,
+                        habitID: habit.id
+                    )
+                    Button {
+                        interaction.select(address)
+                        store.toggleItem(address)
+                    } label: {
                         HStack(spacing: 6) {
                             Image(systemName: habit.isDone ? "checkmark.square.fill" : "square")
                             Text(habit.title).lineLimit(1)
@@ -322,8 +347,10 @@ struct ContentView: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel(habit.title)
                     .accessibilityValue(habit.isDone ? "done" : "not done")
-                    .focusable()
-                    .focused($focusedTask, equals: .habit(habit.id))
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(interaction.selectedItem == address ? TasktarrasqueStyle.activeControlStroke : Color.clear)
+                    )
                 }
             }
         }
@@ -332,70 +359,129 @@ struct ContentView: View {
     private var bigThree: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Big Three").font(.system(size: 13, weight: .bold)).opacity(0.85)
-            ForEach(0..<3, id: \.self) { index in
-                let task = store.selectedWeek?.bigThree[safe: index]
-                HStack(spacing: 7) {
-                    Button { store.toggleBigThree(index: index) } label: {
-                        Image(systemName: task?.isDone == true ? "checkmark.circle.fill" : "circle")
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(task?.isDone == true ? "Mark not done" : "Mark done")
-                    Group {
-                        if focusedRenameField == .bigThree(index) {
-                            FirstResponderTextField(
-                                text: Binding(
-                                    get: { store.selectedWeek?.bigThree[safe: index]?.title ?? "" },
-                                    set: { store.updateBigThree(index: index, title: $0) }
-                                ),
-                                placeholder: "Big task \(index + 1)",
-                                isFirstResponder: true
-                            ) {
-                                focusedRenameField = nil
-                            }
-                            .frame(height: 18)
-                        } else {
-                            Text((task?.title.isEmpty == false ? task?.title : "Big task \(index + 1)") ?? "Big task \(index + 1)")
-                                .foregroundStyle(task?.title.isEmpty == false ? .primary : .secondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .contentShape(Rectangle())
-                                .onTapGesture {
-                                    focusedTask = .bigThree(index)
-                                    focusedRenameField = .bigThree(index)
-                                }
-                                .onTapGesture(count: 2) {
-                                    focusedTask = .bigThree(index)
-                                    focusedRenameField = .bigThree(index)
-                                }
+            if let week = store.selectedWeek {
+                ForEach(0..<3, id: \.self) { index in
+                    let task = week.bigThree[safe: index]
+                    let address = TaskItemAddress.bigThree(weekID: week.id, index: index)
+                    HStack(spacing: 7) {
+                        Button {
+                            interaction.select(address)
+                            store.toggleItem(address)
+                        } label: {
+                            Image(systemName: task?.isDone == true ? "checkmark.circle.fill" : "circle")
                         }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(task?.isDone == true ? "Mark not done" : "Mark done")
+                        Group {
+                            if interaction.editSession?.target == address {
+                                FirstResponderTextField(
+                                    text: editTitleBinding(for: address, currentTitle: task?.title ?? ""),
+                                    placeholder: "Big task \(index + 1)",
+                                    isFirstResponder: true
+                                ) {
+                                    interaction.commitEdit(using: store)
+                                } onCancel: {
+                                    interaction.cancelEdit()
+                                }
+                                .frame(height: 18)
+                            } else {
+                                Text((task?.title.isEmpty == false ? task?.title : "Big task \(index + 1)") ?? "Big task \(index + 1)")
+                                    .foregroundStyle(task?.title.isEmpty == false ? .primary : .secondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .contentShape(Rectangle())
+                                    .onTapGesture {
+                                        beginEditing(address, currentTitle: task?.title ?? "")
+                                    }
+                                    .onTapGesture(count: 2) {
+                                        beginEditing(address, currentTitle: task?.title ?? "")
+                                    }
+                            }
+                        }
+                        .strikethrough(task?.isDone == true)
                     }
-                    .strikethrough(task?.isDone == true)
+                    .padding(7)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(interaction.selectedItem == address ? TasktarrasqueStyle.activeControlBackground : TasktarrasqueStyle.editorBackground))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(interaction.selectedItem == address ? TasktarrasqueStyle.activeControlStroke : Color.clear))
+                    .onTapGesture { interaction.select(address) }
                 }
-                .padding(7)
-                .background(RoundedRectangle(cornerRadius: 8).fill(focusedTask == .bigThree(index) ? TasktarrasqueStyle.activeControlBackground : TasktarrasqueStyle.editorBackground))
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(focusedTask == .bigThree(index) ? TasktarrasqueStyle.activeControlStroke : Color.clear))
-                .focusable()
-                .focused($focusedTask, equals: .bigThree(index))
-                .onTapGesture { focusedTask = .bigThree(index) }
             }
         }
     }
 
-    private func createTask(in target: TaskTarget) {
-        guard let task = store.addTask(to: target) else { return }
-        let focus: FocusedTask
-        switch target {
-        case .thisWeek:
-            focus = .thisWeek(task.id)
-        case .day:
-            focus = .day(task.id)
-        }
-        focusedTask = focus
-        focusedRenameField = nil
-        Task { @MainActor in
-            await Task.yield()
-            focusedTask = focus
-            focusedRenameField = focus
-        }
+    private func taskCard<MenuContent: View>(
+        address: TaskItemAddress,
+        title: String,
+        isChecked: Bool,
+        onToggle: (() -> Void)?,
+        @ViewBuilder menu: @escaping () -> MenuContent
+    ) -> some View {
+        SharedTaskCard(
+            title: editTitleBinding(for: address, currentTitle: title),
+            placeholder: "Task",
+            isSelected: interaction.selectedItem == address,
+            isEditing: interaction.editSession?.target == address,
+            isChecked: isChecked,
+            checkIcon: "checkmark.circle.fill",
+            uncheckedIcon: "circle",
+            onToggle: onToggle.map { action in
+                {
+                    interaction.select(address)
+                    action()
+                }
+            },
+            onSelect: { interaction.select(address) },
+            onBeginEdit: { beginEditing(address, currentTitle: title) },
+            onCommitEdit: { interaction.commitEdit(using: store) },
+            onCancelEdit: { interaction.cancelEdit() },
+            menu: menu
+        )
+    }
+
+    private func editTitleBinding(for address: TaskItemAddress, currentTitle: String) -> Binding<String> {
+        Binding(
+            get: {
+                if interaction.editSession?.target == address {
+                    return interaction.editSession?.draftTitle ?? currentTitle
+                }
+                return currentTitle
+            },
+            set: { newTitle in
+                if interaction.editSession?.target == address {
+                    interaction.updateDraftTitle(newTitle)
+                } else {
+                    store.updateTitle(for: address, title: newTitle)
+                }
+            }
+        )
+    }
+
+    private func beginEditing(_ address: TaskItemAddress, currentTitle: String) {
+        interaction.beginEdit(address, currentTitle: store.title(for: address) ?? currentTitle)
+    }
+
+    private func createThisWeekTask() {
+        guard let weekID = store.selectedWeek?.id else { return }
+        interaction.beginNewTask(in: .thisWeek(weekID: weekID))
+    }
+
+    private func createTaskInSelectedDay() {
+        guard let weekID = store.selectedWeek?.id else { return }
+        interaction.beginNewTask(in: .dayTask(weekID: weekID, weekday: store.selectedDay))
+    }
+
+    private func pendingNewThisWeekAddress(for weekID: UUID) -> TaskItemAddress? {
+        guard let editSession = interaction.editSession,
+              case .new(.thisWeek(let pendingWeekID)) = editSession.mode,
+              pendingWeekID == weekID else { return nil }
+        return editSession.target
+    }
+
+    private func pendingNewDayTaskAddress(weekID: UUID, weekday: Weekday) -> TaskItemAddress? {
+        guard let editSession = interaction.editSession,
+              case .new(.dayTask(let pendingWeekID, let pendingWeekday)) = editSession.mode,
+              pendingWeekID == weekID,
+              pendingWeekday == weekday else { return nil }
+        return editSession.target
     }
 
     private func handleThisWeekDrop(_ providers: [NSItemProvider]) -> Bool {
@@ -411,64 +497,62 @@ struct ContentView: View {
     }
 
     private func moveFocus(_ direction: MoveCommandDirection) {
-        guard let focusedTask else {
-            self.focusedTask = focusOrder().first
+        guard let selectedItem = interaction.selectedItem else {
+            interaction.selectedItem = focusOrder().first
             return
         }
 
         switch direction {
         case .up:
-            moveFocusVertically(from: focusedTask, offset: -1)
+            moveFocusVertically(from: selectedItem, offset: -1)
         case .down:
-            moveFocusVertically(from: focusedTask, offset: 1)
+            moveFocusVertically(from: selectedItem, offset: 1)
         case .left:
-            moveFocusHorizontally(from: focusedTask, toRightColumn: false)
+            moveFocusHorizontally(from: selectedItem, toRightColumn: false)
         case .right:
-            moveFocusHorizontally(from: focusedTask, toRightColumn: true)
+            moveFocusHorizontally(from: selectedItem, toRightColumn: true)
         @unknown default:
             break
         }
     }
 
-    private func moveFocusVertically(from current: FocusedTask, offset: Int) {
+    private func moveFocusVertically(from current: TaskItemAddress, offset: Int) {
         let items = focusColumn(containing: current)
         guard !items.isEmpty, let index = items.firstIndex(of: current) else { return }
-        focusedTask = items[max(0, min(index + offset, items.count - 1))]
+        interaction.selectedItem = items[max(0, min(index + offset, items.count - 1))]
     }
 
-    private func moveFocusHorizontally(from current: FocusedTask, toRightColumn: Bool) {
+    private func moveFocusHorizontally(from current: TaskItemAddress, toRightColumn: Bool) {
         let source = focusColumn(containing: current)
         let target = toRightColumn ? rightColumnFocusOrder() : leftColumnFocusOrder()
         guard !target.isEmpty else { return }
         let sourceIndex = source.firstIndex(of: current) ?? 0
-        focusedTask = target[min(sourceIndex, target.count - 1)]
+        interaction.selectedItem = target[min(sourceIndex, target.count - 1)]
     }
 
-    private func focusColumn(containing item: FocusedTask) -> [FocusedTask] {
+    private func focusColumn(containing item: TaskItemAddress) -> [TaskItemAddress] {
         switch item {
         case .bigThree, .thisWeek:
             leftColumnFocusOrder()
-        case .habit, .day:
+        case .habit, .dayTask:
             rightColumnFocusOrder()
         }
     }
 
     private func deleteFocusedTask() {
-        guard let focusedTask else { return }
-        // Choose the neighbor to focus before the list shrinks, so focus lands
-        // on an adjacent task rather than jumping to the top of the panel.
-        let nextFocus = neighborFocus(of: focusedTask)
-        switch focusedTask {
-        case .thisWeek(let id): store.deleteThisWeekTask(id)
-        case .day(let id): store.deleteDayTask(id)
-        case .habit, .bigThree: return
-        }
-        self.focusedTask = nextFocus ?? focusOrder().first
+        guard let selectedItem = interaction.selectedItem else { return }
+        deleteItem(selectedItem)
+    }
+
+    private func deleteItem(_ item: TaskItemAddress) {
+        let nextFocus = neighborFocus(of: item)
+        store.deleteItem(item)
+        interaction.selectedItem = nextFocus ?? focusOrder().first
     }
 
     /// The item that should receive focus after `item` is deleted: the next
     /// item in the same column, or the previous one if it was last.
-    private func neighborFocus(of item: FocusedTask) -> FocusedTask? {
+    private func neighborFocus(of item: TaskItemAddress) -> TaskItemAddress? {
         let column = focusColumn(containing: item)
         guard let index = column.firstIndex(of: item) else { return nil }
         if index + 1 < column.count { return column[index + 1] }
@@ -480,77 +564,77 @@ struct ContentView: View {
     /// Habits are toggle-only and have no rename field, so renaming them would
     /// leave an invisible, dead rename state.
     private func beginRenamingFocusedTask() {
-        guard let focusedTask else { return }
-        switch focusedTask {
-        case .thisWeek, .day, .bigThree:
-            focusedRenameField = focusedTask
-        case .habit:
-            return
-        }
+        guard let selectedItem = interaction.selectedItem,
+              let title = store.title(for: selectedItem) else { return }
+        interaction.beginEdit(selectedItem, currentTitle: title)
     }
 
     private func toggleFocusedTask() {
-        guard let focusedTask else { return }
-        switch focusedTask {
-        case .day(let id): store.toggleDayTask(id)
-        case .habit(let id): store.toggleHabit(id)
-        case .bigThree(let index): store.toggleBigThree(index: index)
-        case .thisWeek: return
-        }
+        guard let selectedItem = interaction.selectedItem else { return }
+        store.toggleItem(selectedItem)
     }
 
     private func moveFocusedTaskByKeyboard(offset: Int) {
-        guard let focusedTask else { return }
-        switch focusedTask {
-        case .thisWeek(let id): store.moveThisWeekTaskByKeyboard(id, offset: offset)
-        case .day(let id): store.moveDayTaskByKeyboard(id, offset: offset)
-        case .habit, .bigThree: return
+        guard let selectedItem = interaction.selectedItem else { return }
+        switch selectedItem {
+        case .thisWeek(let weekID, let taskID):
+            guard store.selectedWeekID == weekID else { return }
+            store.moveThisWeekTaskByKeyboard(taskID, offset: offset)
+        case .dayTask(let weekID, let weekday, let taskID):
+            guard store.selectedWeekID == weekID, store.selectedDay == weekday else { return }
+            store.moveDayTaskByKeyboard(taskID, offset: offset)
+        case .habit, .bigThree:
+            return
         }
+        interaction.validateVisibleItems(focusOrder())
     }
 
     private func moveFocusedTaskSideways(toDay: Bool) {
-        guard let focusedTask else { return }
-        switch (focusedTask, toDay) {
-        case (.thisWeek(let id), true):
-            store.moveThisWeekTask(id, to: store.selectedDay)
-            refocusAfterMove(.day(id))
-        case (.day(let id), false):
-            store.moveDayTaskToThisWeek(id)
-            refocusAfterMove(.thisWeek(id))
+        guard let selectedItem = interaction.selectedItem else { return }
+        switch (selectedItem, toDay) {
+        case (.thisWeek(let weekID, let taskID), true):
+            guard store.selectedWeekID == weekID else { return }
+            store.moveThisWeekTask(taskID, to: store.selectedDay)
+            interaction.select(.dayTask(weekID: weekID, weekday: store.selectedDay, taskID: taskID))
+        case (.dayTask(let weekID, let weekday, let taskID), false):
+            guard store.selectedWeekID == weekID, store.selectedDay == weekday else { return }
+            store.moveDayTaskToThisWeek(taskID)
+            interaction.select(.thisWeek(weekID: weekID, taskID: taskID))
         default:
             return
         }
     }
 
-    private func refocusAfterMove(_ target: FocusedTask) {
-        focusedRenameField = nil
-        focusedTask = nil
-        DispatchQueue.main.async {
-            focusedTask = target
-        }
-    }
-
-    private func focusOrder() -> [FocusedTask] {
+    private func focusOrder() -> [TaskItemAddress] {
         leftColumnFocusOrder() + rightColumnFocusOrder()
     }
 
     private func validateFocusAfterSelectionChange() {
-        focusedRenameField = nil
-        guard let focusedTask else { return }
-        if !focusOrder().contains(focusedTask) {
-            self.focusedTask = focusOrder().first
-        }
+        interaction.validateVisibleItems(focusOrder())
     }
 
-    private func leftColumnFocusOrder() -> [FocusedTask] {
-        let bigThree = [0, 1, 2].map { FocusedTask.bigThree($0) }
-        let thisWeek = (store.selectedWeek?.thisWeekTasks ?? []).map { FocusedTask.thisWeek($0.id) }
+    private func leftColumnFocusOrder() -> [TaskItemAddress] {
+        guard let week = store.selectedWeek else { return [] }
+        let bigThree = [0, 1, 2].map { TaskItemAddress.bigThree(weekID: week.id, index: $0) }
+        var thisWeek = week.thisWeekTasks.map { TaskItemAddress.thisWeek(weekID: week.id, taskID: $0.id) }
+        if let pending = pendingNewThisWeekAddress(for: week.id) {
+            thisWeek.append(pending)
+        }
         return bigThree + thisWeek
     }
 
-    private func rightColumnFocusOrder() -> [FocusedTask] {
-        let habits = (store.selectedDayPlan?.habits ?? []).map { FocusedTask.habit($0.id) }
-        let day = (store.selectedDayPlan?.tasks ?? []).map { FocusedTask.day($0.id) }
+    private func rightColumnFocusOrder() -> [TaskItemAddress] {
+        guard let week = store.selectedWeek,
+              let dayPlan = store.selectedDayPlan else { return [] }
+        let habits = dayPlan.habits.map {
+            TaskItemAddress.habit(weekID: week.id, weekday: dayPlan.weekday, habitID: $0.id)
+        }
+        var day = dayPlan.tasks.map {
+            TaskItemAddress.dayTask(weekID: week.id, weekday: dayPlan.weekday, taskID: $0.id)
+        }
+        if let pending = pendingNewDayTaskAddress(weekID: week.id, weekday: dayPlan.weekday) {
+            day.append(pending)
+        }
         return habits + day
     }
 
@@ -559,7 +643,7 @@ struct ContentView: View {
         return ZStack {
             Color.black.opacity(0.45)
                 .contentShape(Rectangle())
-                .onTapGesture { weekPendingDeletion = nil }
+                .onTapGesture { interaction.weekPendingDeletion = nil }
             VStack(alignment: .leading, spacing: 14) {
                 Text("Delete this week?")
                     .font(.system(size: 17, weight: .bold))
@@ -569,13 +653,14 @@ struct ContentView: View {
                     .fixedSize(horizontal: false, vertical: true)
                 HStack {
                     Spacer()
-                    Button("Cancel") { weekPendingDeletion = nil }
+                    Button("Cancel") { interaction.weekPendingDeletion = nil }
                         .buttonStyle(.plain)
                         .keyboardShortcut(.cancelAction)
                         .glassPill(cornerRadius: 8)
                     Button("Delete Week") {
                         store.deleteWeek(week.id)
-                        weekPendingDeletion = nil
+                        interaction.weekPendingDeletion = nil
+                        interaction.validateVisibleItems(focusOrder())
                     }
                     .buttonStyle(.plain)
                     .keyboardShortcut(.defaultAction)
@@ -606,13 +691,6 @@ struct ContentView: View {
         }
         .zIndex(4)
     }
-}
-
-enum FocusedTask: Hashable {
-    case bigThree(Int)
-    case thisWeek(UUID)
-    case habit(UUID)
-    case day(UUID)
 }
 
 private struct ThisWeekTaskDropDelegate: DropDelegate {

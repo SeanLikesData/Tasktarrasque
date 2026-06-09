@@ -164,12 +164,18 @@ struct TemplateSheet: View {
                     title: titleBinding(for: task.id, in: tasks),
                     placeholder: placeholder(for: list),
                     isSelected: focusedItem == focus,
+                    isEditing: renameItem == focus,
                     isChecked: false,
                     checkIcon: list == .habits ? "checkmark.square.fill" : "checkmark.circle.fill",
                     uncheckedIcon: list == .habits ? "square" : "circle",
                     onToggle: nil,
-                    renameFocus: $renameItem,
-                    focusID: focus
+                    onSelect: { focusedItem = focus },
+                    onBeginEdit: {
+                        focusedItem = focus
+                        renameItem = focus
+                    },
+                    onCommitEdit: { renameItem = nil },
+                    onCancelEdit: { renameItem = nil }
                 ) {
                     Button(role: .destructive) { remove(task.id, from: tasks) } label: { Text("Delete") }
                 }
