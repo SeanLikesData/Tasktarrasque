@@ -138,7 +138,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func showPopover() {
         guard let panel else { return }
-        NSApp.activate()
+        // Force activation even if another application is frontmost. Without
+        // this an accessory app's panel does not reliably become the key
+        // window, so keyboard shortcuts and text entry are dead on open. The
+        // non-deprecated cooperative activate() does not steal activation, so
+        // we keep the deprecated call deliberately.
+        NSApp.activate(ignoringOtherApps: true)
         applyPinnedBehavior()
         positionPanel()
         panel.orderFrontRegardless()
@@ -147,6 +152,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func closePopover() {
+        // Let the content reset any open sheet and rename state so reopening
+        // returns to the main view instead of a stale sheet.
+        NotificationCenter.default.post(name: .tasktarrasquePopoverWillClose, object: nil)
         panel?.orderOut(nil)
         removeGlobalMonitor()
         logger.debug("Popover closed")
@@ -199,4 +207,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 final class TasktarrasquePanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
+}
+
+extension Notification.Name {
+    /// Posted just before the popover is hidden so the content can reset
+    /// transient state (open sheets, in-progress rename).
+    static let tasktarrasquePopoverWillClose = Notification.Name("TasktarrasquePopoverWillClose")
 }
