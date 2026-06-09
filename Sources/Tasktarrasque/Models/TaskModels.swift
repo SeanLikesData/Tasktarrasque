@@ -60,12 +60,19 @@ struct WeekPlan: Identifiable, Codable, Equatable {
     ]
     var days: [DayPlan] = Weekday.allCases.map { DayPlan(weekday: $0) }
 
+    /// A Big Three slot counts toward the score only when it has a title.
+    /// An empty slot is ignored even if its checkmark was toggled, so the
+    /// completed count can never exceed the total count.
+    private var scoredBigThree: [TodoTask] {
+        bigThree.filter { !$0.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    }
+
     var completedCount: Int {
-        days.map(\.completedCount).reduce(0, +) + bigThree.filter(\.isDone).count
+        days.map(\.completedCount).reduce(0, +) + scoredBigThree.filter(\.isDone).count
     }
 
     var totalCount: Int {
-        days.map(\.totalCount).reduce(0, +) + bigThree.filter { !$0.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.count
+        days.map(\.totalCount).reduce(0, +) + scoredBigThree.count
     }
 
     var scoreText: String { "\(completedCount)/\(totalCount)" }
@@ -81,20 +88,19 @@ struct WeekPlan: Identifiable, Codable, Equatable {
 
 struct WeeklyTemplate: Codable, Equatable {
     var thisWeekTasks: [TodoTask] = []
-    var bigThreeTitles: [String] = ["", "", ""]
     var dailyHabits: [TodoTask] = []
     var days: [DayPlan] = Weekday.allCases.map { DayPlan(weekday: $0) }
 
+    // Big Three is set separately for each week, so the template does not
+    // carry Big Three titles.
     enum CodingKeys: String, CodingKey {
         case thisWeekTasks
-        case bigThreeTitles
         case dailyHabits
         case days
     }
 
-    init(thisWeekTasks: [TodoTask] = [], bigThreeTitles: [String] = ["", "", ""], dailyHabits: [TodoTask] = [], days: [DayPlan] = Weekday.allCases.map { DayPlan(weekday: $0) }) {
+    init(thisWeekTasks: [TodoTask] = [], dailyHabits: [TodoTask] = [], days: [DayPlan] = Weekday.allCases.map { DayPlan(weekday: $0) }) {
         self.thisWeekTasks = thisWeekTasks
-        self.bigThreeTitles = bigThreeTitles
         self.dailyHabits = dailyHabits
         self.days = days
     }
@@ -102,7 +108,6 @@ struct WeeklyTemplate: Codable, Equatable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         thisWeekTasks = try container.decodeIfPresent([TodoTask].self, forKey: .thisWeekTasks) ?? []
-        bigThreeTitles = try container.decodeIfPresent([String].self, forKey: .bigThreeTitles) ?? ["", "", ""]
         dailyHabits = try container.decodeIfPresent([TodoTask].self, forKey: .dailyHabits) ?? []
         days = try container.decodeIfPresent([DayPlan].self, forKey: .days) ?? Weekday.allCases.map { DayPlan(weekday: $0) }
     }
