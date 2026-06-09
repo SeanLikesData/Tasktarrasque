@@ -8,6 +8,7 @@ struct ContentView: View {
     @State private var showingSettings = false
     @State private var showingTemplate = false
     @State private var showingShortcuts = false
+    @State private var weekPendingDeletion: WeekPlan?
     @State private var draggedThisWeekTaskID: UUID?
     @State private var draggedDayTaskID: UUID?
     @FocusState private var focusedTask: FocusedTask?
@@ -18,7 +19,7 @@ struct ContentView: View {
     /// True while any sheet is showing. The main-view key handlers below
     /// short-circuit in that case so shortcuts do not act on the hidden main
     /// view while the user is in a sheet.
-    private var isSheetOpen: Bool { showingSettings || showingTemplate || showingShortcuts }
+    private var isSheetOpen: Bool { showingSettings || showingTemplate || showingShortcuts || weekPendingDeletion != nil }
 
     var body: some View {
         ZStack {
@@ -59,7 +60,9 @@ struct ContentView: View {
                 return .handled
             }
             .onExitCommand {
-                if showingTemplate {
+                if weekPendingDeletion != nil {
+                    weekPendingDeletion = nil
+                } else if showingTemplate {
                     showingTemplate = false
                 } else if showingShortcuts {
                     showingShortcuts = false
@@ -112,6 +115,7 @@ struct ContentView: View {
             if showingSettings { SettingsSheet(onClose: { showingSettings = false }).zIndex(2) }
             if showingTemplate { TemplateSheet(onClose: { showingTemplate = false }).environmentObject(store).zIndex(2) }
             if showingShortcuts { KeyboardShortcutsSheet(onClose: { showingShortcuts = false }).zIndex(2) }
+            if let week = weekPendingDeletion { deleteWeekConfirmation(week).zIndex(3) }
             if let persistenceError = store.persistenceError { errorBanner(persistenceError) }
         }
         .preferredColorScheme(.dark)
@@ -119,6 +123,7 @@ struct ContentView: View {
             showingSettings = false
             showingTemplate = false
             showingShortcuts = false
+            weekPendingDeletion = nil
             focusedRenameField = nil
         }
         .frame(width: popoverSize.width, height: popoverSize.height)
@@ -143,6 +148,14 @@ struct ContentView: View {
             .glassPill(cornerRadius: 8)
             .help("Create the next week")
             .accessibilityLabel("Create new week")
+            Button { weekPendingDeletion = store.selectedWeek } label: {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(.plain)
+            .glassPill(cornerRadius: 8)
+            .help("Delete the selected week")
+            .accessibilityLabel("Delete selected week")
+            .disabled(store.selectedWeek == nil)
             Spacer()
         }
         .font(.system(size: 12, weight: .medium))
@@ -508,6 +521,43 @@ struct ContentView: View {
         let habits = (store.selectedDayPlan?.habits ?? []).map { FocusedTask.habit($0.id) }
         let day = (store.selectedDayPlan?.tasks ?? []).map { FocusedTask.day($0.id) }
         return habits + day
+    }
+
+    private func deleteWeekConfirmation(_ week: WeekPlan) -> some View {
+        let taskCount = week.days.reduce(0) { $0 + $1.tasks.count } + week.thisWeekTasks.count
+        return ZStack {
+            Color.black.opacity(0.45)
+                .contentShape(Rectangle())
+                .onTapGesture { weekPendingDeletion = nil }
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Delete this week?")
+                    .font(.system(size: 17, weight: .bold))
+                Text("\(week.title) and its \(taskCount) task\(taskCount == 1 ? "" : "s") will be permanently deleted. This cannot be undone.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack {
+                    Spacer()
+                    Button("Cancel") { weekPendingDeletion = nil }
+                        .buttonStyle(.plain)
+                        .keyboardShortcut(.cancelAction)
+                        .glassPill(cornerRadius: 8)
+                    Button("Delete Week") {
+                        store.deleteWeek(week.id)
+                        weekPendingDeletion = nil
+                    }
+                    .buttonStyle(.plain)
+                    .keyboardShortcut(.defaultAction)
+                    .foregroundStyle(.red)
+                    .glassPill(cornerRadius: 8)
+                }
+            }
+            .padding(18)
+            .frame(width: 320)
+            .background(TasktarrasqueStyle.panelMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(TasktarrasqueStyle.controlStroke))
+        }
     }
 
     private func errorBanner(_ text: String) -> some View { VStack { Text(text).font(.system(size: 11)).padding(8).background(Color.red.opacity(0.2)).clipShape(RoundedRectangle(cornerRadius: 8)).padding(10); Spacer() } }

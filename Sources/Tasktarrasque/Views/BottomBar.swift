@@ -6,6 +6,10 @@ struct BottomBar: View {
     let onShortcuts: () -> Void
     let onSettings: () -> Void
 
+    /// Shared content height so the save-status pill, the Template button, and
+    /// the icon buttons all line up to the same pill height.
+    private let controlHeight: CGFloat = 22
+
     var body: some View {
         HStack(spacing: 8) {
             Text("\(store.weeks.count) saved week\(store.weeks.count == 1 ? "" : "s")")
@@ -15,8 +19,7 @@ struct BottomBar: View {
             Text(store.saveState.label)
                 .font(.system(size: 11))
                 .foregroundStyle(saveStatusColor)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 5)
+                .frame(height: controlHeight)
                 .glassPill(cornerRadius: 8)
 
             Button(action: onTemplate) {
@@ -25,6 +28,7 @@ struct BottomBar: View {
                     Text("Template")
                 }
                 .font(.system(size: 11, weight: .medium))
+                .frame(height: controlHeight)
             }
             .buttonStyle(.plain)
             .glassPill(cornerRadius: 8)
@@ -43,7 +47,7 @@ struct BottomBar: View {
         Button(action: action) {
             Image(systemName: systemName)
                 .font(.system(size: 13, weight: .semibold))
-                .frame(width: 28, height: 22)
+                .frame(width: 28, height: controlHeight)
                 .glassPill(cornerRadius: 8)
         }
         .buttonStyle(.plain)

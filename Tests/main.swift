@@ -143,6 +143,26 @@ func runAll() -> Int {
         r.expectEqual(sorted[0].thisWeekTasks.count, 0, "task left the current week")
     }
 
+    r.test("deleteWeek removes it and selects a neighbor") {
+        let (store, _) = makeTempStore()
+        _ = store.createNewWeek() // now two weeks
+        _ = store.createNewWeek() // now three weeks
+        let middle = store.weeks.sorted { $0.startDate < $1.startDate }[1]
+        store.deleteWeek(middle.id)
+        r.expectEqual(store.weeks.count, 2, "one week removed")
+        r.expect(!store.weeks.contains { $0.id == middle.id }, "the deleted week is gone")
+        r.expect(store.selectedWeek != nil, "a week is still selected")
+    }
+
+    r.test("deleting the only week creates a fresh one") {
+        let (store, _) = makeTempStore()
+        let only = store.selectedWeek!
+        store.deleteWeek(only.id)
+        r.expectEqual(store.weeks.count, 1, "a replacement week exists")
+        r.expect(store.weeks.first?.id != only.id, "the replacement is a new week")
+        r.expect(store.selectedWeek != nil, "a week is selected")
+    }
+
     r.test("createNewWeek advances seven days from the latest week") {
         let (store, _) = makeTempStore()
         let first = store.selectedWeek!.startDate

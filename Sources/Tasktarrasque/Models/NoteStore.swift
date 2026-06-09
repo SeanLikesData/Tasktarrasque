@@ -83,6 +83,22 @@ final class TaskStore: ObservableObject {
         saveNow()
     }
 
+    /// Deletes a week. The app always keeps at least one week, so deleting the
+    /// last week creates a fresh empty one. After deletion the nearest
+    /// remaining week is selected.
+    func deleteWeek(_ id: UUID) {
+        guard let index = weeks.firstIndex(where: { $0.id == id }) else { return }
+        weeks.remove(at: index)
+        if weeks.isEmpty {
+            createNewWeek()
+            return
+        }
+        let newIndex = min(index, weeks.count - 1)
+        selectedWeekID = weeks[newIndex].id
+        selectedDay = .monday
+        saveNow()
+    }
+
     @discardableResult
     func createNewWeek() -> WeekPlan {
         let start = mondayStart(for: Date())
