@@ -43,7 +43,6 @@ swiftc \
     -sdk "$SDK_PATH" \
     -framework SwiftUI \
     -framework AppKit \
-    -framework ServiceManagement \
     $SOURCES \
     -o "$MACOS_DIR/$APP_NAME"
 

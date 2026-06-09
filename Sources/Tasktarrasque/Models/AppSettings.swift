@@ -3,11 +3,8 @@ import SwiftUI
 /// Keys used with @AppStorage so the strings live in one place.
 enum SettingsKey {
     static let theme = "theme"
-    static let fontSize = "fontSize"
     static let popoverSize = "popoverSize"
     static let pinned = "pinned"
-    static let launchAtLogin = "launchAtLogin"
-    static let markdownRendering = "markdownRendering"
 }
 
 /// Color scheme choice (Settings).
@@ -32,31 +29,6 @@ enum AppTheme: String, CaseIterable, Identifiable {
         case .system: nil
         case .light: .light
         case .dark: .dark
-        }
-    }
-}
-
-/// Editor font size.
-enum FontSize: String, CaseIterable, Identifiable {
-    case small
-    case medium
-    case large
-
-    var id: String { rawValue }
-
-    var label: String {
-        switch self {
-        case .small: "Small"
-        case .medium: "Medium"
-        case .large: "Large"
-        }
-    }
-
-    var pointSize: CGFloat {
-        switch self {
-        case .small: 12
-        case .medium: 14
-        case .large: 17
         }
     }
 }
