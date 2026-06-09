@@ -8,8 +8,8 @@ struct TemplateSheet: View {
     @State private var draft = WeeklyTemplate()
     @State private var selectedDay: Weekday = .monday
     @State private var draggedItem: TemplateItemFocus?
+    @State private var renameItem: TemplateItemFocus?
     @FocusState private var focusedItem: TemplateItemFocus?
-    @FocusState private var renameItem: TemplateItemFocus?
 
     private var canUseTemplateShortcuts: Bool { renameItem == nil }
 

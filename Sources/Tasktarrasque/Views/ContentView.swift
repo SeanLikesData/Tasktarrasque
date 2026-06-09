@@ -11,8 +11,8 @@ struct ContentView: View {
     @State private var weekPendingDeletion: WeekPlan?
     @State private var draggedThisWeekTaskID: UUID?
     @State private var draggedDayTaskID: UUID?
+    @State private var focusedRenameField: FocusedTask?
     @FocusState private var focusedTask: FocusedTask?
-    @FocusState private var focusedRenameField: FocusedTask?
 
     private var popoverSize: CGSize { (PopoverSize(rawValue: popoverRaw) ?? .default).dimensions }
 
@@ -358,6 +358,10 @@ struct ContentView: View {
                                 .foregroundStyle(task?.title.isEmpty == false ? .primary : .secondary)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .contentShape(Rectangle())
+                                .onTapGesture {
+                                    focusedTask = .bigThree(index)
+                                    focusedRenameField = .bigThree(index)
+                                }
                                 .onTapGesture(count: 2) {
                                     focusedTask = .bigThree(index)
                                     focusedRenameField = .bigThree(index)

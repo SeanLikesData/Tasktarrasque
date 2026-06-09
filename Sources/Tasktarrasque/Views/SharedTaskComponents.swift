@@ -36,7 +36,7 @@ struct SharedTaskCard<FocusValue: Hashable, MenuContent: View>: View {
     let checkIcon: String
     let uncheckedIcon: String
     let onToggle: (() -> Void)?
-    var renameFocus: FocusState<FocusValue?>.Binding
+    @Binding var renameFocus: FocusValue?
     let focusID: FocusValue
     @ViewBuilder let menu: () -> MenuContent
 
@@ -59,13 +59,13 @@ struct SharedTaskCard<FocusValue: Hashable, MenuContent: View>: View {
             .frame(width: 16, height: 16)
 
             Group {
-                if renameFocus.wrappedValue == focusID {
+                if renameFocus == focusID {
                     FirstResponderTextField(
                         text: $title,
                         placeholder: placeholder,
                         isFirstResponder: true
                     ) {
-                        renameFocus.wrappedValue = nil
+                        renameFocus = nil
                     }
                     .frame(height: 18)
                 } else {
@@ -73,6 +73,7 @@ struct SharedTaskCard<FocusValue: Hashable, MenuContent: View>: View {
                         .foregroundStyle(title.isEmpty ? .secondary : .primary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(Rectangle())
+                        .onTapGesture { beginRename() }
                         .onTapGesture(count: 2) { beginRename() }
                 }
             }
@@ -102,7 +103,7 @@ struct SharedTaskCard<FocusValue: Hashable, MenuContent: View>: View {
 
     private func beginRename() {
         DispatchQueue.main.async {
-            renameFocus.wrappedValue = focusID
+            renameFocus = focusID
         }
     }
 }
@@ -121,7 +122,8 @@ struct FirstResponderTextField: NSViewRepresentable {
         textField.drawsBackground = false
         textField.focusRingType = .none
         textField.font = .systemFont(ofSize: 13)
-        textField.textColor = .labelColor
+        textField.textColor = .white
+        textField.appearance = NSAppearance(named: .darkAqua)
         textField.delegate = context.coordinator
         textField.lineBreakMode = .byTruncatingTail
         textField.cell?.wraps = false
