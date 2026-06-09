@@ -30,7 +30,11 @@ struct ContentView: View {
                 TasktarrasqueStyle.divider
                 mainBody
                 TasktarrasqueStyle.divider
-                BottomBar(onSettings: { showingSettings = true })
+                BottomBar(
+                    onTemplate: { showingTemplate = true },
+                    onShortcuts: { showingShortcuts = true },
+                    onSettings: { showingSettings = true }
+                )
             }
             .onMoveCommand { direction in
                 guard !isSheetOpen else { return }
@@ -129,9 +133,16 @@ struct ContentView: View {
             }
             .labelsHidden()
             .frame(maxWidth: 270)
-            Button("New Week") { store.createNewWeek() }.buttonStyle(.plain).glassPill(cornerRadius: 8)
-            Button("Template") { showingTemplate = true }.buttonStyle(.plain).glassPill(cornerRadius: 8)
-            Button("Shortcuts") { showingShortcuts = true }.buttonStyle(.plain).glassPill(cornerRadius: 8)
+            Button { store.createNewWeek() } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "plus")
+                    Text("New Week")
+                }
+            }
+            .buttonStyle(.plain)
+            .glassPill(cornerRadius: 8)
+            .help("Create the next week")
+            .accessibilityLabel("Create new week")
             Spacer()
         }
         .font(.system(size: 12, weight: .medium))

@@ -2,10 +2,12 @@ import SwiftUI
 
 struct BottomBar: View {
     @EnvironmentObject private var store: TaskStore
+    let onTemplate: () -> Void
+    let onShortcuts: () -> Void
     let onSettings: () -> Void
 
     var body: some View {
-        HStack {
+        HStack(spacing: 8) {
             Text("\(store.weeks.count) saved week\(store.weeks.count == 1 ? "" : "s")")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
@@ -16,19 +18,37 @@ struct BottomBar: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 5)
                 .glassPill(cornerRadius: 8)
-            Button(action: onSettings) {
-                Image(systemName: "gearshape")
-                    .font(.system(size: 13, weight: .semibold))
-                    .frame(width: 28, height: 22)
-                    .glassPill(cornerRadius: 8)
+
+            Button(action: onTemplate) {
+                HStack(spacing: 5) {
+                    Image(systemName: "square.grid.2x2")
+                    Text("Template")
+                }
+                .font(.system(size: 11, weight: .medium))
             }
             .buttonStyle(.plain)
-            .help("Settings")
-            .accessibilityLabel("Settings")
-            .keyboardShortcut(",", modifiers: .command)
+            .glassPill(cornerRadius: 8)
+            .help("Edit the weekly template")
+            .accessibilityLabel("Weekly template")
+
+            iconButton("questionmark", help: "Keyboard shortcuts", accessibility: "Keyboard shortcuts", action: onShortcuts)
+            iconButton("gearshape", help: "Settings", accessibility: "Settings", action: onSettings)
+                .keyboardShortcut(",", modifiers: .command)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
+    }
+
+    private func iconButton(_ systemName: String, help: String, accessibility: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 13, weight: .semibold))
+                .frame(width: 28, height: 22)
+                .glassPill(cornerRadius: 8)
+        }
+        .buttonStyle(.plain)
+        .help(help)
+        .accessibilityLabel(accessibility)
     }
 
     private var saveStatusColor: Color {
